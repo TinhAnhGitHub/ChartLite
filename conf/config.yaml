@@ -1,0 +1,60 @@
+seed: 461
+
+use_wandb: true
+
+wandb:
+  project: matcha_training
+  run_name: matcha_testing
+
+tags:
+  - chartExtract
+
+model:
+  backbone_path: google/matcha-chartqa
+  max_length: 1024
+  max_patches: 2048
+  patch_size: 16
+  len_tokenizer: ???
+  pad_token_id: ???
+  decoder_start_token_id: ???
+  bos_token_id: ???
+  max_length_generation: 16 
+
+awp:
+  use_awp: true
+  awp_trigger: 0.0
+  awp_trigger_epoch: 1
+  adv_lr: 8e-5
+  adv_eps: 0.001
+
+train_params:
+  train_bs: 2
+  valid_bs: 4
+  num_epochs: 1 
+  grad_accumulation: 16
+  warmup_pct: 0.05
+  save_trigger: -1.0
+  eval_frequency: 16000 
+  patience: 100
+  use_ema: true
+  decay_rate: 0.9925
+
+early_stopping_enable: false
+
+optimizer:
+  lr: 5e-5
+  weight_decay: 1e-5
+  grad_clip_value: 1.0
+
+outputs:
+  model_dir: ../models/matcha
+
+images:
+  rsz_height: 512
+  rsz_width: 512
+
+
+dataset_config:
+  data_dir: ../datasets/benetech-making-graphs-accessible
+
+

@@ -1,0 +1,100 @@
+_wandb:
+    value:
+        cli_version: 0.19.0
+        m: []
+        python_version: 3.11.8
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 50
+                - 53
+                - 55
+                - 71
+                - 80
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 50
+                - 53
+                - 55
+                - 71
+                - 80
+            "3":
+                - 13
+                - 15
+                - 16
+                - 23
+                - 55
+            "4": 3.11.8
+            "5": 0.19.0
+            "6": 4.45.2
+            "8":
+                - 3
+                - 5
+            "12": 0.19.0
+            "13": windows-amd64
+awp:
+    value:
+        adv_eps: 0.001
+        adv_lr: 8e-05
+        awp_trigger: 0
+        awp_trigger_epoch: 1
+        use_awp: true
+dataset_config:
+    value:
+        data_dir: ../datasets/benetech-making-graphs-accessible
+early_stopping_enable:
+    value: false
+images:
+    value:
+        rsz_height: 512
+        rsz_width: 512
+model:
+    value:
+        backbone_path: google/matcha-chartqa
+        bos_token_id: ???
+        decoder_start_token_id: ???
+        len_tokenizer: ???
+        max_length: 1024
+        max_length_generation: 16
+        max_patches: 2048
+        pad_token_id: ???
+        patch_size: 16
+optimizer:
+    value:
+        grad_clip_value: 1
+        lr: 5e-05
+        weight_decay: 1e-05
+outputs:
+    value:
+        model_dir: ../models/matcha
+seed:
+    value: 461
+tags:
+    value:
+        - chartExtract
+train_params:
+    value:
+        decay_rate: 0.9925
+        eval_frequency: 16000
+        grad_accumulation: 16
+        num_epochs: 1
+        patience: 100
+        save_trigger: -1
+        train_bs: 2
+        use_ema: true
+        valid_bs: 4
+        warmup_pct: 0.05
+use_wandb:
+    value: true
+wandb:
+    value:
+        project: matcha_training
+        run_name: matcha_testing
