@@ -216,7 +216,15 @@ class Trainer:
 
             if self.awp_flag:  
                 self.awp.attack_backward(batch, self.accelerator)  
+            if (step + 1) % self.config.train_params.validation_per_step:
+                self.logger("Running evaluation...", logging.INFO)  
+                f1_and_acc = self.evaluate()  
 
+
+
+                f1 = f1_and_acc["f1_score"]  
+                acc = f1_and_acc["accuracy"]  
+                self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)               
             if (step + 1) % self.config.train_params.print_gpu_stats_each_steps:
                 print_gpu_utilization()
 
@@ -268,10 +276,6 @@ class Trainer:
 
         for epoch in range(self.config.train_params.num_epochs):  
             self.train_one_epoch(epoch)  
-
-            
-
-
 
             if (epoch + 1) % self.config.train_params.validation_per_epoch == 0:  
                 self.logger("Running evaluation...", logging.INFO)  
