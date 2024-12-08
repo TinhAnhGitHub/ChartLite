@@ -41,8 +41,7 @@ def tokenize_dict(data: dict):
                     return ''.join(recursive_tokenizer(item) for item in d)
                 return ' '.join(recursive_tokenizer(item) for item in d)
             except Exception as e:
-                print(e)
-                print(d)
+                ...
         else:
             if type(d) == float:
                 return str(round(d, 2))
@@ -102,7 +101,7 @@ class ChartDataset(Dataset):
             ground_truth = json.loads(ground_truth_str)  
             
             chart_type = ground_truth.get('chart_type', 'unknown')  
-
+            
             text = tokenize_dict(ground_truth)  
 
             
