@@ -20,7 +20,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 
 # Import custom modules
-from utils import TOKEN_MAP, JSONParseEvaluator, EMA, AverageMeter, init_wandb, setup, cleanup_processes, save_checkpoint, seed_everything, print_gpu_utilization, run_evaluation
+from utils import TOKEN_MAP, JSONParseEvaluator, EMA, AverageMeter, init_wandb, setup, cleanup_processes, save_checkpoint, seed_everything, print_gpu_utilization, run_evaluation, as_minutes, print_line
 from data import ChartCollator, ChartDataset
 from model import Matcha, AWP
 
@@ -216,7 +216,7 @@ class Trainer:
 
             if self.awp_flag:  
                 self.awp.attack_backward(batch, self.accelerator)  
-            if (step + 1) % self.config.train_params.validation_per_step:
+            if (step + 1) % self.config.train_params.validation_per_step ==0:
                 self.logger("Running evaluation...", logging.INFO)  
                 f1_and_acc = self.evaluate()  
 
@@ -226,10 +226,10 @@ class Trainer:
                 acc = f1_and_acc["accuracy"]  
                 self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
 
-            if (step + 1) % self.config.train_params.save_checkpoint_per_step:
+            if (step + 1) % self.config.train_params.save_checkpoint_per_step ==0 :
                 self.save_checkpoint_eval_step(step, f1, acc)  
     
-            if (step + 1) % self.config.train_params.print_gpu_stats_each_steps:
+            if (step + 1) % self.config.train_params.print_gpu_stats_each_steps ==0 :
                 print_gpu_utilization()
 
             if (step + 1) % self.config.train_params.grad_accumulation == 0:  
@@ -245,7 +245,7 @@ class Trainer:
                     self.ema.update()  
 
                 progress_bar.set_description(  
-                    f"Loss: {loss_meter.avg:.4f}, LR: {self.scheduler.get_last_lr()[0]:.6f}, Time Duration: {time.time() - self.start_time}"  
+                    f"Loss: {loss_meter.avg:.4f}, LR: {self.scheduler.get_last_lr()[0]:.6f}, Time Duration: {as_minutes(time.time() - self.start_time)}"  
                 )  
                 progress_bar.update(1)  
 
@@ -317,7 +317,7 @@ class Trainer:
                             self.logger("Early stopping triggered.", logging.INFO)  
                             break  
             if self.config.train_params.save_checkpoint_per_epoch:
-                if (epoch + 1) % self.config.train_params.save_checkpoint_per_epoch:
+                if (epoch + 1) % self.config.train_params.save_checkpoint_per_epoch ==0:
                     self.save_checkpoint_eval(epoch, f1, acc)  
 
         self.logger("Training complete.", logging.INFO)  

@@ -33,7 +33,7 @@ def run_evaluation(
         with torch.no_grad():
             batch_ids = batch["id"]
             
-            generated_ids = model.backbone.generate(
+            generated_ids = model.module.backbone.generate(
                 flattened_patches=batch['flattened_patches'],
                 attention_mask=batch['attention_mask'],
                 generation_config=generation_config,
