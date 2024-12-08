@@ -98,7 +98,7 @@ class ChartDataset(Dataset):
         row = self.parquet_df.loc[graph_id]
         
         try:
-            ground_truth_str = row["ground_truth"]
+            ground_truth_str = row["annotation"]
             ground_truth = json.loads(ground_truth_str)  
             
             chart_type = ground_truth.get('chart_type', 'unknown')  
