@@ -301,25 +301,24 @@ class Trainer:
         self.logger("Training complete.", logging.INFO)  
             
 
+def train_process(rank: int, world_size: int, config: OmegaConf):  
+    """  
+    Function to be executed by each process in the DDP setup.  
+    Initializes the Trainer class and starts training.  
+    """  
+    try:  
+        trainer = Trainer(config=config, rank=rank, world_size=world_size)  
+        trainer.train()  
+    except Exception as e:  
+        print(f"Error in process {rank}: {e}")  
+        cleanup_processes()  
+        raise e  
 def main_ddp(world_size: int, config: OmegaConf):  
     """  
     Main function for distributed data parallel (DDP) training.  
     Spawns processes for each GPU and initializes the Trainer class.  
     """  
-    def train_process(rank: int, world_size: int, config: OmegaConf):  
-        """  
-        Function to be executed by each process in the DDP setup.  
-        Initializes the Trainer class and starts training.  
-        """  
-        try:  
-            trainer = Trainer(config=config, rank=rank, world_size=world_size)  
-            trainer.train()  
-        except Exception as e:  
-            print(f"Error in process {rank}: {e}")  
-            cleanup_processes()  
-            raise e  
 
-    cleanup_processes()  
 
     if world_size > 1:  
         mp.spawn(  
@@ -330,6 +329,7 @@ def main_ddp(world_size: int, config: OmegaConf):
         )  
     else:  
         train_process(rank=0, world_size=1, config=config)  
+    cleanup_processes()  
 @hydra.main(version_base=None, config_path="./conf", config_name="config")
 def run_training(cfg):
     world_size = torch.cuda.device_count()  #
