@@ -224,7 +224,11 @@ class Trainer:
 
                 f1 = f1_and_acc["f1_score"]  
                 acc = f1_and_acc["accuracy"]  
-                self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)               
+                self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
+
+            if (step + 1) % self.config.train_params.save_checkpoint_per_step:
+                self.save_checkpoint_eval_step(step, f1, acc)  
+    
             if (step + 1) % self.config.train_params.print_gpu_stats_each_steps:
                 print_gpu_utilization()
 
@@ -265,6 +269,19 @@ class Trainer:
             checkpoint_name,  
         )  
         self.logger(f"Checkpoint saved: {checkpoint_name}", logging.INFO)  
+    def save_checkpoint_eval_step(self, step: int, f1: float, acc: float):  
+        """Saves a checkpoint if performance improves."""  
+        checkpoint_name = f"checkpoint_epoch{step + 1}_f1{f1:.4f}_acc{acc:.4f}.pt"  
+        save_checkpoint(  
+            self.config,  
+            {  
+                "step": self.current_iteration,  
+                "step": step + 1,  
+                "state_dict": self.model.state_dict(),  
+            },  
+            checkpoint_name,  
+        )  
+        self.logger(f"Checkpoint saved: {checkpoint_name}", logging.INFO)  
 
     def train(self):  
         """Main training loop."""  
@@ -277,30 +294,31 @@ class Trainer:
         for epoch in range(self.config.train_params.num_epochs):  
             self.train_one_epoch(epoch)  
 
-            if (epoch + 1) % self.config.train_params.validation_per_epoch == 0:  
-                self.logger("Running evaluation...", logging.INFO)  
-                f1_and_acc = self.evaluate()  
+            if self.config.train_params.validation_per_epoch:
+                if (epoch + 1) % self.config.train_params.validation_per_epoch == 0:  
+                    self.logger("Running evaluation...", logging.INFO)  
+                    f1_and_acc = self.evaluate()  
 
 
 
-                f1 = f1_and_acc["f1_score"]  
-                acc = f1_and_acc["accuracy"]  
-                self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
+                    f1 = f1_and_acc["f1_score"]  
+                    acc = f1_and_acc["accuracy"]  
+                    self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
 
-                if self.config.early_stopping_enable:
-                    if f1 > self.best_f1 + 0.001 or acc > self.best_accuracy + 0.001:  
-                        self.best_f1, self.best_accuracy = max(self.best_f1, f1), max(self.best_accuracy, acc)  
-                        self.patience_tracker = 0  
-                        self.save_checkpoint_eval(epoch, f1, acc)  
-                    else:  
-                        self.patience_tracker += 1  
+                    if self.config.early_stopping_enable:
+                        if f1 > self.best_f1 + 0.001 or acc > self.best_accuracy + 0.001:  
+                            self.best_f1, self.best_accuracy = max(self.best_f1, f1), max(self.best_accuracy, acc)  
+                            self.patience_tracker = 0  
+                            self.save_checkpoint_eval(epoch, f1, acc)  
+                        else:  
+                            self.patience_tracker += 1  
 
-                    if self.patience_tracker >= self.config.train_params.patience:  
-                        self.logger("Early stopping triggered.", logging.INFO)  
-                        break  
-                else:
-                    if (epoch + 1) % self.config.train_params.save_checkpoint_per_epoch:
-                        self.save_checkpoint_eval(epoch, f1, acc)  
+                        if self.patience_tracker >= self.config.train_params.patience:  
+                            self.logger("Early stopping triggered.", logging.INFO)  
+                            break  
+            if self.config.train_params.save_checkpoint_per_epoch:
+                if (epoch + 1) % self.config.train_params.save_checkpoint_per_epoch:
+                    self.save_checkpoint_eval(epoch, f1, acc)  
 
         self.logger("Training complete.", logging.INFO)  
             

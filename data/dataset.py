@@ -80,7 +80,7 @@ class ChartDataset(Dataset):
         self.resize_width = cfg.images.rsz_width
         self.transform = create_train_transforms(self.resize_height, self.resize_width)
         self.parquet_df = pd.read_parquet(parquet_path)  
-        self.graph_ids = self.parquet_df.index.tolist()  
+        self.graph_ids = self.parquet_df.index.tolist()
         
         self.load_processor()
 
