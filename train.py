@@ -261,7 +261,10 @@ class Trainer:
 
     def save_checkpoint_eval(self, epoch: int, f1: float = None, acc: float = None):  
         """Saves a checkpoint if performance improves."""  
-        checkpoint_name = f"checkpoint_epoch{epoch + 1}_f1{f1:.4f}_acc{acc:.4f}.pt"  
+        if f1 and acc:
+            checkpoint_name = f"checkpoint_epoch{epoch + 1}_f1{f1:.4f}_acc{acc:.4f}.pt"  
+        else:
+            checkpoint_name = f"checkpoint_epoch{epoch + 1}.pt"  
         save_checkpoint(  
             self.config,  
             {  
