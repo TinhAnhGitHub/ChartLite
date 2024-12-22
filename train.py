@@ -94,11 +94,11 @@ class Trainer:
         train_files = glob.glob(os.path.join(directory, "train*.parquet"))  
         valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))  
 
-        train_dataset = ChartDataset(self.config, train_files)  
         valid_dataset = ChartDataset(self.config, valid_files)  
 
         if len(valid_dataset) == 0:
             valid_dataset = ChartDataset(self.config, train_files,self.config.dataset.percent_to_take_in_train)
+        train_dataset = ChartDataset(self.config, train_files,selected_ids_for_valid = valid_dataset.share_validation())
         self.logger(f"Train dataset size: {len(train_dataset)}, Valid dataset size: {len(valid_dataset)}")  
 
         self.tokenizer = train_dataset.processor.tokenizer  
