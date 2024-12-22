@@ -80,12 +80,11 @@ class ChartDataset(Dataset):
         self.resize_width = cfg.images.rsz_width
         self.transform = create_train_transforms(self.resize_height, self.resize_width)
         self.parquet_df = pd.read_parquet(parquet_path)
-        if not sharing:
-            self.graph_ids = self.parquet_df.index.tolist()
-        else:
+        self.graph_ids = self.parquet_df.index.tolist()
+        if sharing:
             print(f"Validation parquet not found, selecting randomly from training set: {sharing*100}")
-            num_to_select = int(len(my_list) * (sharing))
-            self.graph_ids = random.sample(self.parquet_df.index.tolist(), num_to_select)
+            num_to_select = int(len(self.graph_ids) * (sharing))
+            self.graph_ids = random.sample(self.graph_ids, num_to_select)
         
         self.load_processor()
     def share_validation(self,percent):
