@@ -251,9 +251,9 @@ class Trainer:
                 )  
                 progress_bar.update(1)  
 
-                if self.config.use_wandb:  
-                    wandb.log({"train_loss": round(loss_meter.avg, 5)}, step=self.current_iteration)  
-                    wandb.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.current_iteration)  
+            if self.config.use_wandb:  
+                wandb.log({"train_loss": round(loss_meter.avg, 5)}, step=self.current_iteration)  
+                wandb.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.current_iteration)  
 
         progress_bar.close()  
         self.logger(f"End of epoch {epoch + 1}: Average Loss: {loss_meter.avg:.4f} | Time Duration: {time.time() - self.start_time}", logging.INFO)  
