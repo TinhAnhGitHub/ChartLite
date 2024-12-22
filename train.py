@@ -277,7 +277,10 @@ class Trainer:
         self.logger(f"Checkpoint saved: {checkpoint_name}", logging.INFO)  
     def save_checkpoint_eval_step(self, step: int, f1: float, acc: float):  
         """Saves a checkpoint if performance improves."""  
-        checkpoint_name = f"checkpoint_epoch{step + 1}_f1{f1:.4f}_acc{acc:.4f}.pt"  
+        if f1 and acc:
+            checkpoint_name = f"checkpoint_epoch{step + 1}_f1{f1:.4f}_acc{acc:.4f}.pt"  
+        else:
+            checkpoint_name = f"checkpoint_epoch{step + 1}.pt"  
         save_checkpoint(  
             self.config,  
             {  
