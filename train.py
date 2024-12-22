@@ -90,7 +90,7 @@ class Trainer:
 
     def load_data(self):  
         """Loads training and validation datasets."""  
-        directory = self.config.dataset_config  
+        directory = self.config.dataset.parquet_dict  
         train_files = glob.glob(os.path.join(directory, "train*.parquet"))  
         valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))  
 
@@ -98,7 +98,7 @@ class Trainer:
         valid_dataset = ChartDataset(self.config, valid_files)  
 
         if len(validation) == 0:
-            valid_dataset = ChartDataset(self.config, train_files[random.randint(0,len(train_files))])
+            valid_dataset = ChartDataset(self.config, train_files[random.randint(0,len(train_files))],self.config.dataset.percent_to_take_in_train)
         self.logger(f"Train dataset size: {len(train_dataset)}, Valid dataset size: {len(valid_dataset)}")  
 
         self.tokenizer = train_dataset.processor.tokenizer  

@@ -59,10 +59,9 @@ fold_metadata:
   n_folds: 2
   fold_dir: /kaggle/working/ChartQa_clean/data
   fold_path: train-00000-of-00001.parquet
-competition_dataset:
+dataset:
   parquet_dict: /kaggle/working/ChartQa_clean/data
   percent_to_take_in_train: 0.006711409396
-dataset_config: /kaggle/working/ChartQa_clean/data
 wandb:
   project: mga-dev-a1
   run_name: rb-exp100-r-final
