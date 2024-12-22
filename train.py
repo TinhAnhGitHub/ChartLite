@@ -17,7 +17,7 @@ from transformers import  get_cosine_schedule_with_warmup
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-
+import random
 
 # Import custom modules
 from utils import TOKEN_MAP, JSONParseEvaluator, EMA, AverageMeter, init_wandb, setup, cleanup_processes, save_checkpoint, seed_everything, print_gpu_utilization, run_evaluation, as_minutes, print_line
@@ -97,6 +97,8 @@ class Trainer:
         train_dataset = ChartDataset(self.config, train_files)  
         valid_dataset = ChartDataset(self.config, valid_files)  
 
+        if len(validation) == 0:
+            valid_dataset = ChartDataset(self.config, train_files[random.randint(0,len(train_files))])
         self.logger(f"Train dataset size: {len(train_dataset)}, Valid dataset size: {len(valid_dataset)}")  
 
         self.tokenizer = train_dataset.processor.tokenizer  

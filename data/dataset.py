@@ -10,7 +10,7 @@ from tokenizers import AddedToken
 from torch.utils.data import Dataset
 from transformers import Pix2StructProcessor
 import io
-
+import random
 from utils.constant import TOKEN_MAP
 
 
@@ -74,16 +74,22 @@ def get_processor(cfg):
     return processor
 
 class ChartDataset(Dataset):
-    def __init__(self, cfg, parquet_path):
+    def __init__(self, cfg, parquet_path, sharing = None):
         self.cfg = cfg
         self.resize_height = cfg.images.rsz_height
         self.resize_width = cfg.images.rsz_width
         self.transform = create_train_transforms(self.resize_height, self.resize_width)
-        self.parquet_df = pd.read_parquet(parquet_path)  
-        self.graph_ids = self.parquet_df.index.tolist()
+        self.parquet_df = pd.read_parquet(parquet_path)
+        if not sharing:
+            self.graph_ids = self.parquet_df.index.tolist()
+        else:
+            print(f"Validation parquet not found, selecting randomly from training set: {sharing*100}")
+            num_to_select = int(len(my_list) * (sharing))
+            self.graph_ids = random.sample(self.parquet_df.index.tolist(), num_to_select)
         
         self.load_processor()
-
+    def share_validation(self,percent):
+        self.graph_ids
     def load_processor(self):
         self.processor = get_processor(self.cfg)
 
