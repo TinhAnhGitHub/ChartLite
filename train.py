@@ -97,7 +97,7 @@ class Trainer:
         train_dataset = ChartDataset(self.config, train_files)  
         valid_dataset = ChartDataset(self.config, valid_files)  
 
-        if len(validation) == 0:
+        if len(valid_dataset) == 0:
             valid_dataset = ChartDataset(self.config, train_files[random.randint(0,len(train_files))],self.config.dataset.percent_to_take_in_train)
         self.logger(f"Train dataset size: {len(train_dataset)}, Valid dataset size: {len(valid_dataset)}")  
 
