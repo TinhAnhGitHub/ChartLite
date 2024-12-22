@@ -98,7 +98,7 @@ class Trainer:
         valid_dataset = ChartDataset(self.config, valid_files)  
 
         if len(valid_dataset) == 0:
-            valid_dataset = ChartDataset(self.config, train_files[random.randint(0,len(train_files)-1)],self.config.dataset.percent_to_take_in_train)
+            valid_dataset = ChartDataset(self.config, train_files,self.config.dataset.percent_to_take_in_train)
         self.logger(f"Train dataset size: {len(train_dataset)}, Valid dataset size: {len(valid_dataset)}")  
 
         self.tokenizer = train_dataset.processor.tokenizer  
