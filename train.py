@@ -215,7 +215,8 @@ class Trainer:
                 labels=batch["labels"],  
             )  
             self.accelerator.backward(loss)  
-
+            f1 = None
+            acc = None
             if self.awp_flag:  
                 self.awp.attack_backward(batch, self.accelerator)  
             if (step + 1) % self.config.train_params.validation_per_step ==0:
@@ -258,7 +259,7 @@ class Trainer:
         progress_bar.close()  
         self.logger(f"End of epoch {epoch + 1}: Average Loss: {loss_meter.avg:.4f} | Time Duration: {time.time() - self.start_time}", logging.INFO)  
 
-    def save_checkpoint_eval(self, epoch: int, f1: float, acc: float):  
+    def save_checkpoint_eval(self, epoch: int, f1: float = None, acc: float = None):  
         """Saves a checkpoint if performance improves."""  
         checkpoint_name = f"checkpoint_epoch{epoch + 1}_f1{f1:.4f}_acc{acc:.4f}.pt"  
         save_checkpoint(  
