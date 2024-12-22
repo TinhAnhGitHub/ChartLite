@@ -12,11 +12,29 @@ class Matcha(nn.Module):
     The Matcha model
     """
     def __init__(self, cfg):
-        if cfg.from_checkpoint_dir:
+        super().__init__()  # Initialize the nn.Module parent class
+
+        # Initialize Pix2Struct backbone configuration
+        backbone_config = Pix2StructConfig.from_pretrained(cfg.model.backbone_path)
+        backbone_config.text_config.max_length = cfg.model.max_length
+        backbone_config.text_config.is_decoder = True
+        backbone_config.text_config.pad_token_id = cfg.model.pad_token_id
+        backbone_config.text_config.decoder_start_token_id = cfg.model.decoder_start_token_id
+        backbone_config.text_config.bos_token_id = cfg.model.bos_token_id
+
+        # Initialize Pix2Struct model
+        self.backbone = Pix2StructForConditionalGeneration.from_pretrained(
+            cfg.model.backbone_path,
+            config=backbone_config,
+        )
+
+        # Load checkpoint if provided
+        if cfg.get("from_checkpoint_dir"):
             checkpoint_path = cfg.from_checkpoint_dir  # Path to the .pth file
             print(f"Loading checkpoint from {checkpoint_path}")
             checkpoint = torch.load(checkpoint_path)  # Load the checkpoint file
 
+            # Load model state_dict
             if 'state_dict' in checkpoint:  # If the checkpoint contains a `state_dict`
                 self.backbone.load_state_dict(checkpoint['state_dict'], strict=False)
                 print("Loaded model state_dict from checkpoint.")
@@ -24,38 +42,27 @@ class Matcha(nn.Module):
                 self.backbone.load_state_dict(checkpoint, strict=False)
                 print("Loaded raw state_dict into the model.")
 
-            if 'optimizer_state_dict' in checkpoint:
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            # Optionally load optimizer state_dict if necessary
+            if 'optimizer_state_dict' in checkpoint and hasattr(self, 'optimizer'):
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 print("Loaded optimizer state_dict from checkpoint.")
 
-        backbone_config = Pix2StructConfig.from_pretrained(cfg.model.backbone_path)
-
-        backbone_config.text_config.max_length = cfg.model.max_length
-        backbone_config.text_config.is_decoder = True
-
-        backbone_config.text_config.pad_token_id = cfg.model.pad_token_id
-        backbone_config.text_config.decoder_start_token_id = cfg.model.decoder_start_token_id
-        backbone_config.text_config.bos_token_id = cfg.model.bos_token_id
-
-        self.backbone = Pix2StructForConditionalGeneration.from_pretrained(
-            cfg.model.backbone_path,
-            config=backbone_config,
-        )
-
+        # Freeze encoder layers
         print("Freezing the encoder...")
         for param in self.backbone.encoder.parameters():
             param.requires_grad = False
 
+        # Resize embeddings for tokenizer length
         print("Resizing model embeddings...")
-        print(f"tokenizer length = {cfg.model.len_tokenizer}")
+        print(f"Tokenizer length = {cfg.model.len_tokenizer}")
         self.backbone.decoder.resize_token_embeddings(cfg.model.len_tokenizer)
         print("Finished resizing")
 
+        # Define loss function
         self.loss_fn = nn.CrossEntropyLoss(
             ignore_index=-100,
             reduction="mean",
         )
-
     def forward(
             self,
             flattened_patches,
