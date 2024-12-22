@@ -10,7 +10,7 @@ from tokenizers import AddedToken
 from torch.utils.data import Dataset
 from transformers import Pix2StructProcessor
 import io
-
+import random
 from utils.constant import TOKEN_MAP
 
 
@@ -41,8 +41,7 @@ def tokenize_dict(data: dict):
                     return ''.join(recursive_tokenizer(item) for item in d)
                 return ' '.join(recursive_tokenizer(item) for item in d)
             except Exception as e:
-                print(e)
-                print(d)
+                ...
         else:
             if type(d) == float:
                 return str(round(d, 2))
@@ -75,16 +74,28 @@ def get_processor(cfg):
     return processor
 
 class ChartDataset(Dataset):
-    def __init__(self, cfg, parquet_path):
+    def __init__(self, cfg, parquet_path, sharing = None, selected_ids_for_valid  = None):
         self.cfg = cfg
         self.resize_height = cfg.images.rsz_height
         self.resize_width = cfg.images.rsz_width
         self.transform = create_train_transforms(self.resize_height, self.resize_width)
-        self.parquet_df = pd.read_parquet(parquet_path)  
-        self.graph_ids = self.parquet_df.index.tolist()  
-        
+        self.parquet_df = pd.read_parquet(parquet_path)
+        self.graph_ids = self.parquet_df.index.tolist()
+        #Exclude the validation datas
+        if selected_ids_for_valid:
+            self.graph_ids = [id for id in self.graph_ids if id not in selected_ids_for_valid]
+        else:
+            #If not then don't exclude
+            self.selected_ids_for_valid = []
+        #Share with validation with a percentage of training set
+        if sharing:
+            print(f"Validation parquet not found, selecting randomly from training set: {sharing*100}")
+            num_to_select = int(len(self.graph_ids) * (sharing))
+            self.graph_ids = random.sample(self.graph_ids, num_to_select)
+            self.selected_ids_for_valid = self.graph_ids
         self.load_processor()
-
+    def share_validation(self):
+        return self.selected_ids_for_valid
     def load_processor(self):
         self.processor = get_processor(self.cfg)
 
@@ -98,11 +109,11 @@ class ChartDataset(Dataset):
         row = self.parquet_df.loc[graph_id]
         
         try:
-            ground_truth_str = row["ground_truth"]
+            ground_truth_str = row["annotation"]
             ground_truth = json.loads(ground_truth_str)  
             
             chart_type = ground_truth.get('chart_type', 'unknown')  
-
+            
             text = tokenize_dict(ground_truth)  
 
             

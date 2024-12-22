@@ -17,10 +17,10 @@ from transformers import  get_cosine_schedule_with_warmup
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-
+import random
 
 # Import custom modules
-from utils import TOKEN_MAP, JSONParseEvaluator, EMA, AverageMeter, init_wandb, setup, cleanup_processes, save_checkpoint, seed_everything, print_gpu_utilization, run_evaluation
+from utils import TOKEN_MAP, JSONParseEvaluator, EMA, AverageMeter, init_wandb, setup, cleanup_processes, save_checkpoint, seed_everything, print_gpu_utilization, run_evaluation, as_minutes, print_line
 from data import ChartCollator, ChartDataset
 from model import Matcha, AWP
 
@@ -90,13 +90,15 @@ class Trainer:
 
     def load_data(self):  
         """Loads training and validation datasets."""  
-        directory = self.config.dataset_config  
+        directory = self.config.dataset.parquet_dict  
         train_files = glob.glob(os.path.join(directory, "train*.parquet"))  
         valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))  
 
-        train_dataset = ChartDataset(self.config, train_files)  
         valid_dataset = ChartDataset(self.config, valid_files)  
 
+        if len(valid_dataset) == 0:
+            valid_dataset = ChartDataset(self.config, train_files,self.config.dataset.percent_to_take_in_train)
+        train_dataset = ChartDataset(self.config, train_files,selected_ids_for_valid = valid_dataset.share_validation())
         self.logger(f"Train dataset size: {len(train_dataset)}, Valid dataset size: {len(valid_dataset)}")  
 
         self.tokenizer = train_dataset.processor.tokenizer  
@@ -216,8 +218,20 @@ class Trainer:
 
             if self.awp_flag:  
                 self.awp.attack_backward(batch, self.accelerator)  
+            if (step + 1) % self.config.train_params.validation_per_step ==0:
+                self.logger("Running evaluation...", logging.INFO)  
+                f1_and_acc = self.evaluate()  
 
-            if (step + 1) % self.config.train_params.print_gpu_stats_each_steps:
+
+
+                f1 = f1_and_acc["f1_score"]  
+                acc = f1_and_acc["accuracy"]  
+                self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
+
+            if (step + 1) % self.config.train_params.save_checkpoint_per_step ==0 :
+                self.save_checkpoint_eval_step(step, f1, acc)  
+    
+            if (step + 1) % self.config.train_params.print_gpu_stats_each_steps ==0 :
                 print_gpu_utilization()
 
             if (step + 1) % self.config.train_params.grad_accumulation == 0:  
@@ -233,13 +247,13 @@ class Trainer:
                     self.ema.update()  
 
                 progress_bar.set_description(  
-                    f"Loss: {loss_meter.avg:.4f}, LR: {self.scheduler.get_last_lr()[0]:.6f}, Time Duration: {time.time() - self.start_time}"  
+                    f"Loss: {loss_meter.avg:.4f}, LR: {self.scheduler.get_last_lr()[0]:.6f}, Time Duration: {as_minutes(time.time() - self.start_time)}"  
                 )  
                 progress_bar.update(1)  
 
-                if self.config.use_wandb:  
-                    wandb.log({"train_loss": round(loss_meter.avg, 5)}, step=self.current_iteration)  
-                    wandb.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.current_iteration)  
+            if self.config.use_wandb:  
+                wandb.log({"train_loss": round(loss_meter.avg, 5)}, step=self.current_iteration + step)  
+                wandb.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.current_iteration + step)  
 
         progress_bar.close()  
         self.logger(f"End of epoch {epoch + 1}: Average Loss: {loss_meter.avg:.4f} | Time Duration: {time.time() - self.start_time}", logging.INFO)  
@@ -257,6 +271,19 @@ class Trainer:
             checkpoint_name,  
         )  
         self.logger(f"Checkpoint saved: {checkpoint_name}", logging.INFO)  
+    def save_checkpoint_eval_step(self, step: int, f1: float, acc: float):  
+        """Saves a checkpoint if performance improves."""  
+        checkpoint_name = f"checkpoint_epoch{step + 1}_f1{f1:.4f}_acc{acc:.4f}.pt"  
+        save_checkpoint(  
+            self.config,  
+            {  
+                "step": self.current_iteration,  
+                "step": step + 1,  
+                "state_dict": self.model.state_dict(),  
+            },  
+            checkpoint_name,  
+        )  
+        self.logger(f"Checkpoint saved: {checkpoint_name}", logging.INFO)  
 
     def train(self):  
         """Main training loop."""  
@@ -269,57 +296,53 @@ class Trainer:
         for epoch in range(self.config.train_params.num_epochs):  
             self.train_one_epoch(epoch)  
 
-            
+            if self.config.train_params.validation_per_epoch:
+                if (epoch + 1) % self.config.train_params.validation_per_epoch == 0:  
+                    self.logger("Running evaluation...", logging.INFO)  
+                    f1_and_acc = self.evaluate()  
 
 
 
-            if (epoch + 1) % self.config.train_params.validation_per_epoch == 0:  
-                self.logger("Running evaluation...", logging.INFO)  
-                f1_and_acc = self.evaluate()  
+                    f1 = f1_and_acc["f1_score"]  
+                    acc = f1_and_acc["accuracy"]  
+                    self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
 
+                    if self.config.early_stopping_enable:
+                        if f1 > self.best_f1 + 0.001 or acc > self.best_accuracy + 0.001:  
+                            self.best_f1, self.best_accuracy = max(self.best_f1, f1), max(self.best_accuracy, acc)  
+                            self.patience_tracker = 0  
+                            self.save_checkpoint_eval(epoch, f1, acc)  
+                        else:  
+                            self.patience_tracker += 1  
 
-
-                f1 = f1_and_acc["f1_score"]  
-                acc = f1_and_acc["accuracy"]  
-                self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
-
-                if self.config.early_stopping_enable:
-                    if f1 > self.best_f1 + 0.001 or acc > self.best_accuracy + 0.001:  
-                        self.best_f1, self.best_accuracy = max(self.best_f1, f1), max(self.best_accuracy, acc)  
-                        self.patience_tracker = 0  
-                        self.save_checkpoint_eval(epoch, f1, acc)  
-                    else:  
-                        self.patience_tracker += 1  
-
-                    if self.patience_tracker >= self.config.train_params.patience:  
-                        self.logger("Early stopping triggered.", logging.INFO)  
-                        break  
-                else:
-                    if (epoch + 1) % self.config.train_params.save_checkpoint_per_epoch:
-                        self.save_checkpoint_eval(epoch, f1, acc)  
+                        if self.patience_tracker >= self.config.train_params.patience:  
+                            self.logger("Early stopping triggered.", logging.INFO)  
+                            break  
+            if self.config.train_params.save_checkpoint_per_epoch:
+                if (epoch + 1) % self.config.train_params.save_checkpoint_per_epoch ==0:
+                    self.save_checkpoint_eval(epoch, f1, acc)  
 
         self.logger("Training complete.", logging.INFO)  
             
 
+def train_process(rank: int, world_size: int, config: OmegaConf):  
+    """  
+    Function to be executed by each process in the DDP setup.  
+    Initializes the Trainer class and starts training.  
+    """  
+    try:  
+        trainer = Trainer(config=config, rank=rank, world_size=world_size)  
+        trainer.train()  
+    except Exception as e:  
+        print(f"Error in process {rank}: {e}")  
+        cleanup_processes()  
+        raise e  
 def main_ddp(world_size: int, config: OmegaConf):  
     """  
     Main function for distributed data parallel (DDP) training.  
     Spawns processes for each GPU and initializes the Trainer class.  
     """  
-    def train_process(rank: int, world_size: int, config: OmegaConf):  
-        """  
-        Function to be executed by each process in the DDP setup.  
-        Initializes the Trainer class and starts training.  
-        """  
-        try:  
-            trainer = Trainer(config=config, rank=rank, world_size=world_size)  
-            trainer.train()  
-        except Exception as e:  
-            print(f"Error in process {rank}: {e}")  
-            cleanup_processes()  
-            raise e  
 
-    cleanup_processes()  
 
     if world_size > 1:  
         mp.spawn(  
@@ -330,6 +353,7 @@ def main_ddp(world_size: int, config: OmegaConf):
         )  
     else:  
         train_process(rank=0, world_size=1, config=config)  
+    cleanup_processes()  
 @hydra.main(version_base=None, config_path="./conf", config_name="config")
 def run_training(cfg):
     world_size = torch.cuda.device_count()  #

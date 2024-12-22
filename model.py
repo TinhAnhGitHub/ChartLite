@@ -30,6 +30,9 @@ class Matcha(nn.Module):
             cfg.model.backbone_path,
             config=backbone_config,
         )
+        print("Freezing the encoder...")
+        for param in self.backbone.encoder.parameters():
+            param.requires_grad = False
 
         print("resizing model embeddings...")
         print(f"tokenizer length = {cfg.model.len_tokenizer}")
