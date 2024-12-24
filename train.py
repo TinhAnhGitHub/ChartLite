@@ -209,6 +209,7 @@ class Trainer:
         self.model.train()  
         step_cumulate = 0
         total_step_per_epoch = len(self.train_dl)
+        print('total step to go: ', total_step_per_epoch * self.config.train_params.num_epochs)
         for step, batch in enumerate(self.train_dl):  
             loss, _ = self.model(  
                 flattened_patches=batch["flattened_patches"],  
@@ -220,7 +221,7 @@ class Trainer:
             acc = None
             if self.awp_flag:  
                 self.awp.attack_backward(batch, self.accelerator)  
-            if (step + 1) % self.config.train_params.validation_per_step ==0:
+            if (self.current_iteration * total_step_per_epoch + step + 1) % self.config.train_params.validation_per_step ==0:
                 self.logger("Running evaluation...", logging.INFO)  
                 f1_and_acc = self.evaluate()  
 
@@ -230,13 +231,13 @@ class Trainer:
                 acc = f1_and_acc["accuracy"]  
                 self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
 
-            if (step + 1) % self.config.train_params.save_checkpoint_per_step ==0 :
+            if (self.current_iteration * total_step_per_epoch + step + 1) % self.config.train_params.save_checkpoint_per_step ==0 :
                 self.save_checkpoint_eval_step(self.current_iteration * total_step_per_epoch + step, f1, acc)  
     
-            if (step + 1) % self.config.train_params.print_gpu_stats_each_steps ==0 :
+            if (self.current_iteration * total_step_per_epoch + step + 1) % self.config.train_params.print_gpu_stats_each_steps ==0 :
                 print_gpu_utilization()
 
-            if (step + 1) % self.config.train_params.grad_accumulation == 0:  
+            if (self.current_iteration * total_step_per_epoch + step + 1) % self.config.train_params.grad_accumulation == 0:  
                 self.accelerator.clip_grad_norm_(  
                     self.model.parameters(), self.config.optimizer.grad_clip_value  
                 )  
