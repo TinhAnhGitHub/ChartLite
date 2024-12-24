@@ -188,7 +188,7 @@ class Trainer:
         if self.ema:  
             self.ema.apply_shadow()  
 
-        f1_and_acc = runevaluation(self.config, self.model, self.valid_dl, self.tokenizer)  
+        f1_and_acc = run_evaluation(self.config, self.model, self.valid_dl, self.tokenizer)  
 
         if self.ema:  
             self.ema.restore()  
