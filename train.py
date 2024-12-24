@@ -188,7 +188,7 @@ class Trainer:
         if self.ema:  
             self.ema.apply_shadow()  
 
-        f1_and_acc = run_evaluation(self.config, self.model, self.valid_dl, self.tokenizer)  
+        f1_and_acc = runevaluation(self.config, self.model, self.valid_dl, self.tokenizer)  
 
         if self.ema:  
             self.ema.restore()  
@@ -207,7 +207,8 @@ class Trainer:
         loss_meter = AverageMeter()  
 
         self.model.train()  
-
+        step_cumulate = 0
+        total_step_per_epoch = len(self.train_dl)
         for step, batch in enumerate(self.train_dl):  
             loss, _ = self.model(  
                 flattened_patches=batch["flattened_patches"],  
@@ -230,7 +231,7 @@ class Trainer:
                 self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
 
             if (step + 1) % self.config.train_params.save_checkpoint_per_step ==0 :
-                self.save_checkpoint_eval_step(step, f1, acc)  
+                self.save_checkpoint_eval_step(self.current_iteration * total_step_per_epoch + step, f1, acc)  
     
             if (step + 1) % self.config.train_params.print_gpu_stats_each_steps ==0 :
                 print_gpu_utilization()
@@ -253,8 +254,8 @@ class Trainer:
                 progress_bar.update(1)  
 
             if self.config.use_wandb:  
-                wandb.log({"train_loss": round(loss_meter.avg, 5)}, step=self.current_iteration + step)  
-                wandb.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.current_iteration + step)  
+                wandb.log({"train_loss": round(loss_meter.avg, 5)}, step=self.current_iteration * total_step_per_epoch + step)  
+                wandb.log({"lr": self.scheduler.get_last_lr()[0]}, step=self.current_iteration * total_step_per_epoch + step)  
 
         progress_bar.close()  
         self.logger(f"End of epoch {epoch + 1}: Average Loss: {loss_meter.avg:.4f} | Time Duration: {time.time() - self.start_time}", logging.INFO)  
