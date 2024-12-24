@@ -62,7 +62,7 @@ def run_evaluation(
         
 
     eval_JSON = JSONParseEvaluator()
-
+    print(preds_dict)
     f1_score = eval_JSON.cal_f1(
         preds=preds_dict,
         answers = label_dicts
