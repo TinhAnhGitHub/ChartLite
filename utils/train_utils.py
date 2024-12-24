@@ -245,7 +245,7 @@ class EMA:
 
 
 
-def setup(rank: int, world_size: int, timeout_seconds: float = 3600.0):
+def setup(rank: int, world_size: int, timeout_seconds: float = 3600000000.0):
     """
     Set up the process group for DDP on Kaggle with NCCL backend and use a timedelta for timeout.
     
