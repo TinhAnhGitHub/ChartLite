@@ -32,14 +32,29 @@ def run_evaluation(
         
         with torch.no_grad():
             batch_ids = batch["id"]
-            
-            generated_ids = model.backbone.generate(
-                flattened_patches=batch['flattened_patches'],
-                attention_mask=batch['attention_mask'],
-                generation_config=generation_config,
-            )
-            generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+            try:
+                # Access the backbone properly based on whether the model is wrapped in DDP
+                if hasattr(model, "module"):
+                    backbone = model.module.backbone
+                else:
+                    backbone = model.backbone
 
+                # Generate text using the backbone
+                generated_ids = backbone.generate(
+                    flattened_patches=batch['flattened_patches'],
+                    attention_mask=batch['attention_mask'],
+                    generation_config=generation_config,
+                )
+                
+                # Decode the generated IDs into text
+                generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+
+            except AttributeError as e:
+                print(f"Attribute error encountered: {e}")
+                raise
+            except Exception as e:
+                print(f"An error occurred during text generation: {e}")
+                raise
 
             all_ids.extend(batch_ids)
             all_texts.extend(generated_texts)
