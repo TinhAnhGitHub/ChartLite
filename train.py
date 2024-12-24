@@ -302,6 +302,7 @@ class Trainer:
         self.start_time = time.time() 
 
         for epoch in range(self.config.train_params.num_epochs):  
+            self.current_iteration = epoch
             self.train_one_epoch(epoch)  
 
             if self.config.train_params.validation_per_epoch:
