@@ -17,6 +17,7 @@ from transformers import  get_cosine_schedule_with_warmup
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
 import random
 
 # Import custom modules
@@ -206,6 +207,8 @@ class Trainer:
         progress_bar = tqdm(range(len(self.train_dl)), desc=f"Epoch {epoch + 1}/{self.config.train_params.num_epochs}")  
         loss_meter = AverageMeter()  
 
+        rank = dist.get_rank()
+
         self.model.train()  
         step_cumulate = 0
         total_step_per_epoch = len(self.train_dl)
@@ -222,7 +225,8 @@ class Trainer:
             if self.awp_flag:  
                 self.awp.attack_backward(batch, self.accelerator)  
             if (self.current_iteration * total_step_per_epoch + step + 1) % self.config.train_params.validation_per_step ==0:
-                if self.rank == 0:
+                if rank == 0:
+                    print("Rank 0 is evaluating...")
                     self.logger("Running evaluation...", logging.INFO)  
                     f1_and_acc = self.evaluate()  
 
@@ -231,11 +235,16 @@ class Trainer:
                     f1 = f1_and_acc["f1_score"]  
                     acc = f1_and_acc["accuracy"]  
                     self.logger(f"Evaluation - F1 Score: {f1:.4f}, Accuracy: {acc:.4f}", logging.INFO)                  
+                    print("Rank 0 finished evaluation.")
+                else:
+                    print(f"Rank {rank} is waiting for evaluation to complete.")
 
             if (self.current_iteration * total_step_per_epoch + step + 1) % self.config.train_params.save_checkpoint_per_step ==0 :
                 if self.rank == 0:
                     self.save_checkpoint_eval_step(self.current_iteration * total_step_per_epoch + step, f1, acc)  
-    
+                else:
+                    print(f"Rank {rank} waiting for rank 0 to save")
+            dist.barrier()
             if (self.current_iteration * total_step_per_epoch + step + 1) % self.config.train_params.print_gpu_stats_each_steps ==0 :
                 print_gpu_utilization()
 
