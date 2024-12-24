@@ -43,7 +43,6 @@ def run_evaluation(
 
             all_ids.extend(batch_ids)
             all_texts.extend(generated_texts)
-            print(all_texts)
             label_dict.extend(batch['texts'])
         progress_bar.update(1)
     progress_bar.close()
@@ -63,7 +62,6 @@ def run_evaluation(
         
 
     eval_JSON = JSONParseEvaluator()
-    print(preds_dict)
     f1_score = eval_JSON.cal_f1(
         preds=preds_dict,
         answers = label_dicts
