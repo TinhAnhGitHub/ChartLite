@@ -53,7 +53,9 @@ class Matcha(nn.Module):
         for layer in self.backbone.encoder.layer[:to_freeze_layer]:
             for param in layer.parameters():
                 param.requires_grad = False
-        
+        for param in self.backbone.embeddings.parameters():
+            param.requires_grad = False
+
         # for param in self.backbone.encoder.parameters():
             # param.requires_grad = False
 
