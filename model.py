@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import Pix2StructConfig, Pix2StructForConditionalGeneration,Pix2StructVisionEncoder
+from transformers import Pix2StructConfig, Pix2StructForConditionalGeneration
 
 
 class Matcha(nn.Module):
@@ -50,10 +50,10 @@ class Matcha(nn.Module):
         # Freeze some encoder layers
         print("Freezing the encoder...")
         to_freeze_layer = int(0.4 * backbone_config.num_hidden_layers)
-        for layer in self.backbone.encoder.layer[:to_freeze_layer]:
+        for layer in self.backbone.encoder.encoder.layer[:to_freeze_layer]:
             for param in layer.parameters():
                 param.requires_grad = False
-        for param in self.backbone.embeddings.parameters():
+        for param in self.backbone.encoder.embeddings.parameters():
             param.requires_grad = False
 
         # for param in self.backbone.encoder.parameters():
