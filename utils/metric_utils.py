@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from rapidfuzz.distance.Levenshtein import distance as levenshtein
 
+from nltk import edit_distance
 
 def compute_accuracy(df, true_col, pred_col):
     df = deepcopy(df)
@@ -338,6 +339,61 @@ class JSONParseEvaluator:
                     total_fn_or_fp += 1
             total_fn_or_fp += len(answer)
         return total_tp / (total_tp + total_fn_or_fp / 2)
+    
+    def compute_metric(self,gt, pred):
+        """
+        Compare ground truth and prediction.
+        Returns True if the values are similar (within a 5% tolerance for numbers),
+        or if they are exactly the same for strings (case-insensitive).
+        """
+        try:
+            # If they are numeric, compute absolute error and check if it's within 5% tolerance
+            gt = float(gt)
+            pred = float(pred)
+            return abs(gt - pred) / abs(gt) <= 0.05
+        except:
+            distance = edit_distance(str(gt), str(pred))
+            
+            # You can define a threshold for acceptable distance
+            # For example, if the distance is below a certain threshold, consider it a match
+            threshold = 3  # This can be adjusted based on tolerance level
+            return distance <= threshold
+
+    def compare_json(self,gt_json, pred_json):
+        """
+        Compare two JSON objects (ground truth and predictions).
+        Assumes both JSONs have the same structure (keys).
+        Returns a dictionary with metrics for each key.
+        """
+        val_metrics = []
+        flat_and_norm_gt = flatten(self.normalize_dict(gt_json))
+        flat_and_norm_pred = flatten(self.normalize_dict(pred_json))
+        # Iterate through each key-value pair in the ground truth and prediction JSONs
+        key_gt = [i[0] for i in flat_and_norm_gt]
+        key_pred = [i[0] for i in flat_and_norm_pred]
+        for index,tup_pred in enumerate(flat_and_norm_pred):
+            if tup_pred[0] in key_gt:
+                gt_value = tup_pred[1]
+                pred_value = flat_and_norm_gt[index][1]
+                
+                # Compare values using compute_metric method
+                if self.compute_metric(gt_value, pred_value):
+                    val_metrics.append((f'{gt_value}',1))  # Exact match or within tolerance
+                else:
+                    val_metrics.append((f'{gt_value}',0))   # Mismatch
+            else:
+                val_metrics.append((f'{gt_value}',-1))   # Key missing in prediction
+
+        # Calculate overall metric (percentage of matches)
+        total_keys = len(val_metrics)
+        # print(total_keys)
+        correct_matches = sum(1 for val in val_metrics if val[1] == 1)
+        overall_metric = correct_matches / total_keys if total_keys > 0 else 0
+        average_metric = sum(val[1] for val in val_metrics) / total_keys if total_keys > 0 else 0
+        return overall_metric,average_metric
+    def compare_json_list(self, gt_jsons,pred_jsons):
+        for gt_json, pred_json in zip(gt_jsons,pred_jsons):
+            overall_metric,average_metric = self.compare_json(gt_json,pred_json)
 
     def construct_tree_from_dict(self, data: Union[Dict, List], node_name: str = None):
         """
