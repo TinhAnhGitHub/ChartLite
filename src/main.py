@@ -3,12 +3,16 @@ import glob
 import torch
 from torch.utils.data import DataLoader
 from transformers import get_cosine_schedule_with_warmup, GenerationConfig
+from transformers.optimization import Adafactor
+
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, StochasticWeightAveraging, TQDMProgressBar
-from pytorch_lightning.loggers import WandbLogger
+
+
+import wandb
 import yaml
 import argparse
-import OmegaConf
+from  omegaconf import OmegaConf
 
 from utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter
 from data import ChartCollator, ChartDataset
@@ -33,6 +37,11 @@ class ChartDataModule(LightningDataModule):
         temp_dataset = ChartDataset(self.config, train_files)
         self.processor = temp_dataset.processor
         self.tokenizer = self.processor.tokenizer
+        self.config.model.len_tokenizer = len(self.tokenizer)  
+        self.config.model.pad_token_id = self.tokenizer.pad_token_id  
+        self.config.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
+        self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
+        
 
         if valid_files:
             self.train_dataset = ChartDataset(self.config, train_files)
@@ -83,9 +92,8 @@ class MatchaLightningModule(LightningModule):
 
 
         self.train_metrics = AverageMeter()
-       
-
-        
+        self.global_step_counter = 0
+        self.use_wandb = config.wandb.enabled
 
         self.save_hyperparameters()
     
@@ -104,6 +112,18 @@ class MatchaLightningModule(LightningModule):
 
         self.log('train/loss_step', loss, on_step=True, prog_bar=True)
         self.log('train/loss_avg', loss_avg, on_epoch=True, prog_bar=True)
+
+        if self.use_wandb:
+            self.global_step_counter += 1
+            wandb.log({
+                'train/loss_step_direct': loss.item(),
+                'train/loss_avg_direct': loss_avg,
+                'step': self.global_step_counter,
+                'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr']
+            })
+            
+            
+            
         return loss
 
     def on_train_epoch_end(self):
@@ -125,7 +145,9 @@ class MatchaLightningModule(LightningModule):
             "label_texts": label_texts,
         }
     
-    def validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self, outputs=None):
+        if outputs is None:
+            return
         all_ids = []
         all_generated_texts = []
         all_label_texts = []
@@ -139,10 +161,7 @@ class MatchaLightningModule(LightningModule):
         preds_dict = [(this_id, post_processing(this_text, TOKEN_MAP)) 
                       for this_id, this_text in zip(all_ids, all_generated_texts)]
 
-    
-        
         eval_json = JSONParseEvaluator()
-
         f1_score = eval_json.cal_f1(preds=preds_dict, answers=label_dicts)
         accuracy = sum([eval_json.cal_acc(pred=pred, answer=label) 
                        for pred, label in zip(preds_dict, label_dicts)]) / len(preds_dict)
@@ -159,14 +178,24 @@ class MatchaLightningModule(LightningModule):
         self.log("val_overall_sim", overall_sim_average["mean_overall_metric"], prog_bar=True)
         self.log("val_average_sim", overall_sim_average["mean_average_metric"], prog_bar=True)
 
+        if self.use_wandb:
+            wandb.log({
+                "custom/val_f1": f1_score,
+                "custom/val_acc": accuracy, 
+                "custom/val_overall_sim": overall_sim_average["mean_overall_metric"],
+                "custom/val_average_sim": overall_sim_average["mean_average_metric"],
+                "step": self.global_step_counter,
+                "epoch": self.current_epoch
+            })
+            
+            
 
     
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adafactor(
+        optimizer = Adafactor(
             self.model.parameters(),
-            scale_parameter=False,
-            relative_step=False,
+            scale_parameter=False, relative_step=False,
             lr=self.config.optimizer.lr,
             weight_decay=self.config.optimizer.weight_decay,
         )
@@ -197,20 +226,25 @@ class MatchaLightningModule(LightningModule):
 def run_training(cfg):
     seed_everything(cfg.general.seed)
 
-    
-
     data_module = ChartDataModule(cfg)
     data_module.setup()
     tokenizer = data_module.tokenizer
     model = MatchaLightningModule(cfg, tokenizer)
 
-    logger = WandbLogger(project=cfg.wandb.project) if cfg.wandb.use else None
+    if cfg.wandb.enabled:
+        wandb.init(
+            project=cfg.wandb.project,
+            name=cfg.wandb.run_name,
+            config=OmegaConf.to_container(cfg, resolve=True)
+        )
+        
+
 
     swa_callback = StochasticWeightAveraging(
-        swa_epoch_start=cfg.training.get("swa_epoch_start", 0.5),   
-        swa_lrs=cfg.training.get("swa_lrs", 0.05),
-        annealing_epochs=cfg.training.get("swa_annealing_epochs", 10),
-        annealing_strategy=cfg.training.get("swa_annealing_strategy", "cos")
+        swa_epoch_start=cfg.train_params.get("swa_epoch_start", 0.5),   
+        swa_lrs=cfg.train_params.get("swa_lrs", 0.05),
+        annealing_epochs=cfg.train_params.get("swa_annealing_epochs", 10),
+        annealing_strategy=cfg.train_params.get("swa_annealing_strategy", "cos")
     )
 
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
@@ -221,12 +255,12 @@ def run_training(cfg):
             mode=cfg.best_ckpt.mode,
             save_top_k=cfg.best_ckpt.save_top_k,
             filename="best-checkpoint-{epoch:02d}-{val_f1:.4f}",
-            dirpath=os.path.join(cfg.checkpoint_dir, 'best_ckpts')
+            dirpath=os.path.join(checkpoint_dir, 'best_ckpts')
         ),
         ModelCheckpoint(
             save_last=True,
             filename="last-checkpoint",
-            dirpath=os.path.join(cfg.checkpoint_dir, 'last_ckpts')
+            dirpath=os.path.join(checkpoint_dir, 'last_ckpts')
         ),  
         EarlyStopping(
             monitor=cfg.early_stopping.monitor,
@@ -241,15 +275,14 @@ def run_training(cfg):
     ]
     
     trainer = Trainer(
-        max_epochs=cfg.training.epochs,
+        max_epochs=cfg.train_params.num_epochs,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=torch.cuda.device_count() if torch.cuda.is_available() else 1,
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
-        logger=logger,
         callbacks=callbacks,
         gradient_clip_val=cfg.optimizer.grad_clip_value,
-        accumulate_grad_batches=cfg.training.grad_accumulation,
-        precision=16 if cfg.training.use_fp16 else 32,
+        accumulate_grad_batches=cfg.train_params.grad_accumulation,
+        precision=16 if cfg.train_params.use_fp16 else 32,
         check_val_every_n_epoch=1,
         fast_dev_run=cfg.general.fast_dev_run
     )

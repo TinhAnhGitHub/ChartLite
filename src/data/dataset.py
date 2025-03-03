@@ -78,7 +78,7 @@ class ChartDataset(Dataset):
         if 'id' in self.parquet_df.columns and self.parquet_df['id'].is_unique:
             self.graph_ids = self.parquet_df['id'].tolist()
         else:
-            print("No unique 'id' column found or duplicates detected; using global index")
+            #print("No unique 'id' column found or duplicates detected; using global index")
             self.graph_ids = self.parquet_df.index.tolist()
         
         
