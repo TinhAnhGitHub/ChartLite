@@ -1,0 +1,71 @@
+debug: false
+use_random_seed: true
+seed: 461
+fold: '???'
+train_folds: '???'
+valid_folds: '???'
+use_wandb: false
+all_data: true
+add_syn: false
+add_pl: false
+pl_multiplier: 8
+extracted_multiplier: 16
+original_multiplier: 3
+use_augmentations: false
+num_workers: 4
+tags:
+  - final
+early_stopping_enable: false
+model:
+  backbone_path: 'google/matcha-base'
+  max_length: 512
+  max_patches: 1024
+  patch_size: 16
+  len_tokenizer: '???'
+  pad_token_id: '???'
+  decoder_start_token_id: '???'
+  bos_token_id: '???'
+  max_length_generation: 512
+awp:
+  use_awp: false
+  awp_trigger: 0.0
+  awp_trigger_epoch: 1
+  adv_lr: 8e-5
+  adv_eps: 0.001
+train_params:
+  train_bs: 2
+  valid_bs: 2
+  num_epochs: 10
+  grad_accumulation: 16
+  warmup_pct: 0.05
+  save_trigger: -1.0
+  use_fp16: true
+  patience: 100
+  use_ema: true
+  decay_rate: 0.9925
+  num_workers: 4
+  epoch_saved: 2
+  print_gpu_stats_each_steps: 1000
+  validation_per_step: 1000
+  save_checkpoint_per_step: 1000
+optimizer:
+  lr: 5e-5
+  weight_decay: 1e-5
+  grad_clip_value: 1.0
+outputs:
+  model_dir: '/kaggle/working/model_dir'
+fold_metadata:
+  n_folds: 2
+  fold_dir: '/kaggle/working/ChartQa_clean/data'
+  fold_path: 'train-00000-of-00001.parquet'
+competition_dataset:
+  parquet_dict: '/kaggle/working/ChartQa_clean/data'
+dataset_config: '/kaggle/working/ChartQa_clean/data'
+wandb:
+  project: 'mga-dev-a1'
+  run_name: 'rb-exp100-r-final'
+images:
+  rsz_height: 512
+  rsz_width: 512
+generation:
+  max_length: 1024

@@ -6,11 +6,13 @@ from transformers import get_cosine_schedule_with_warmup, GenerationConfig
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, StochasticWeightAveraging, TQDMProgressBar
 from pytorch_lightning.loggers import WandbLogger
-import hydra
+import yaml
+import argparse
+import OmegaConf
 
-from .utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter
-from .data import ChartCollator, ChartDataset
-from .models import Matcha
+from utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter
+from data import ChartCollator, ChartDataset
+from models import Matcha
 
 BOS_TOKEN = TOKEN_MAP["bos_token"]
 
@@ -191,7 +193,7 @@ class MatchaLightningModule(LightningModule):
             }
         }
 
-@hydra.main(version_base=None, config_path="./conf", config_name="config")
+
 def run_training(cfg):
     seed_everything(cfg.general.seed)
 
@@ -255,4 +257,14 @@ def run_training(cfg):
     trainer.fit(model, datamodule=data_module)
 
 if __name__ == "__main__":
-    run_training()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, required=True, help="Path to config file")
+    args = parser.parse_args()
+    
+    with open(args.config, "r") as f:
+        yaml_config = yaml.safe_load(f)
+    
+    config = OmegaConf.create(yaml_config)
+
+    run_training(cfg=config)
