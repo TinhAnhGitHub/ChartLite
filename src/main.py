@@ -173,10 +173,10 @@ class MatchaLightningModule(LightningModule):
             string_tolerance=self.config.metrics_tolerance.string_tolerance
         )
         
-        self.log("val_f1", f1_score, prog_bar=True)
-        self.log("val_acc", accuracy, prog_bar=True)
-        self.log("val_overall_sim", overall_sim_average["mean_overall_metric"], prog_bar=True)
-        self.log("val_average_sim", overall_sim_average["mean_average_metric"], prog_bar=True)
+        self.log("val_f1", f1_score, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val_acc", accuracy, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val_overall_sim", overall_sim_average["mean_overall_metric"], on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val_average_sim", overall_sim_average["mean_average_metric"], on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
 
         if self.use_wandb:
             wandb.log({
