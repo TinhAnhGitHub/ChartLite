@@ -255,13 +255,15 @@ def run_training(cfg):
             mode=cfg.best_ckpt.mode,
             save_top_k=cfg.best_ckpt.save_top_k,
             filename="best-checkpoint-{epoch:02d}-{val_f1:.4f}",
-            dirpath=os.path.join(checkpoint_dir, 'best_ckpts')
+            dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
         ),
         ModelCheckpoint(
             save_last=True,
-            filename="last-checkpoint",
+            filename="last-checkpoint-{epoch:02d}-{val_f1:.4f}",
+            every_n_train_steps=cfg.train_params.save_every_n_train_steps,
+            every_n_epochs=None,
             dirpath=os.path.join(checkpoint_dir, 'last_ckpts')
-        ),  
+        ),
         EarlyStopping(
             monitor=cfg.early_stopping.monitor,
             patience=cfg.early_stopping.patience,
