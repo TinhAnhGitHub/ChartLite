@@ -284,7 +284,7 @@ def run_training(cfg):
         accumulate_grad_batches=cfg.train_params.grad_accumulation,
         precision=16 if cfg.train_params.use_fp16 else 32,
         check_val_every_n_epoch = cfg.train_params.val_every_n_epoch,
-        val_check_innterval = cfg.train_params.n_percentage_val_per_epoch,
+        val_check_interval = cfg.train_params.n_percentage_val_per_epoch,
         fast_dev_run=cfg.general.fast_dev_run
     )
 
