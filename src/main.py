@@ -20,6 +20,8 @@ from models import Matcha
 
 BOS_TOKEN = TOKEN_MAP["bos_token"]
 
+torch.set_float32_matmul_precision('medium')
+
 class ChartDataModule(LightningDataModule):
     def __init__(self, config):
         super().__init__()
@@ -91,7 +93,15 @@ class MatchaLightningModule(LightningModule):
         )
 
 
-        self.train_metrics = AverageMeter()
+        self.train_metrics = AverageMeter() # Loss tracking
+        self.val_metrics = {
+            "loss": AverageMeter(),
+            "f1": AverageMeter(),
+            "accuracy": AverageMeter(),
+            "overall_sim": AverageMeter(),
+            "average_sim": AverageMeter()
+        }
+
         self.global_step_counter = 0
         self.use_wandb = config.wandb.enabled
 
@@ -112,6 +122,7 @@ class MatchaLightningModule(LightningModule):
 
         self.log('train/loss_step', loss, on_step=True, prog_bar=True)
         self.log('train/loss_avg', loss_avg, on_epoch=True, prog_bar=True)
+        self.log('train/learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=True)
 
         if self.use_wandb:
             self.global_step_counter += 1
@@ -121,16 +132,38 @@ class MatchaLightningModule(LightningModule):
                 'step': self.global_step_counter,
                 'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr']
             })
+        
+        if batch_idx % 50 == 0:
+            self.print(f"[Train] Epoch {self.current_epoch} Step {batch_idx} - Loss: {loss:.4f}, Avg Loss: {loss_avg:.4f}")
+        
             
             
             
         return loss
 
     def on_train_epoch_end(self):
+        epoch_loss = self.train_metrics.avg
+        self.log('train/epoch_loss', epoch_loss, on_epoch=True)
+
+        if self.use_wandb:
+            wandb.log({
+                'train/epoch_loss': epoch_loss,
+                'epoch': self.current_epoch
+            })
+
+        self.print(f"[Train End] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f}")
         self.train_metrics.reset()
         
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
+            loss = self(
+                flattened_patches=batch["flattened_patches"],
+                attention_mask=batch["attention_mask"],
+                labels=batch["labels"]
+            )
+            self.val_metrics["loss"].update(loss.item(), 1)
+
+        
             generated_ids = self.model.backbone.generate(
                 flattened_patches=batch["flattened_patches"],
                 attention_mask=batch["attention_mask"],
@@ -139,7 +172,11 @@ class MatchaLightningModule(LightningModule):
             generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             label_texts = batch["texts"]
 
+        self.log('val/loss_step', loss, on_step=True, prog_bar=True)
+
+
         return {
+            "loss": loss,
             "ids": batch["id"],
             "generated_texts": generated_texts,
             "label_texts": label_texts,
@@ -148,6 +185,7 @@ class MatchaLightningModule(LightningModule):
     def on_validation_epoch_end(self, outputs=None):
         if outputs is None:
             return
+
         all_ids = []
         all_generated_texts = []
         all_label_texts = []
@@ -156,37 +194,57 @@ class MatchaLightningModule(LightningModule):
             all_ids.extend(output["ids"])
             all_generated_texts.extend(output["generated_texts"])
             all_label_texts.extend(output["label_texts"])
-        
+
         label_dicts = [post_processing(label_str, TOKEN_MAP) for label_str in all_label_texts]
-        preds_dict = [(this_id, post_processing(this_text, TOKEN_MAP)) 
+        preds_dict = [(this_id, post_processing(this_text, TOKEN_MAP))
                       for this_id, this_text in zip(all_ids, all_generated_texts)]
 
         eval_json = JSONParseEvaluator()
         f1_score = eval_json.cal_f1(preds=preds_dict, answers=label_dicts)
-        accuracy = sum([eval_json.cal_acc(pred=pred, answer=label) 
+        accuracy = sum([eval_json.cal_acc(pred=pred, answer=label)
                        for pred, label in zip(preds_dict, label_dicts)]) / len(preds_dict)
-    
+
         overall_sim_average = eval_json.compare_json_list(
-            label_dicts, 
+            label_dicts,
             preds_dict,
             numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
             string_tolerance=self.config.metrics_tolerance.string_tolerance
         )
-        
-        self.log("val_f1", f1_score, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("val_acc", accuracy, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("val_overall_sim", overall_sim_average["mean_overall_metric"], on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("val_average_sim", overall_sim_average["mean_average_metric"], on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+
+        self.val_metrics["f1"].update(f1_score, 1)
+        self.val_metrics["accuracy"].update(accuracy, 1)
+        self.val_metrics["overall_sim"].update(overall_sim_average["mean_overall_metric"], 1)
+        self.val_metrics["average_sim"].update(overall_sim_average["mean_average_metric"], 1)
+
+        val_loss_avg = self.val_metrics["loss"].avg
+        f1_avg = self.val_metrics["f1"].avg
+        accuracy_avg = self.val_metrics["accuracy"].avg
+        overall_sim_avg = self.val_metrics["overall_sim"].avg
+        average_sim_avg = self.val_metrics["average_sim"].avg
+
+        self.log("val/loss_avg", val_loss_avg, on_epoch=True, sync_dist=True)
+        self.log("val/f1_avg", f1_avg, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log("val/accuracy_avg", accuracy_avg, on_epoch=True, sync_dist=True)
+        self.log("val/overall_sim_avg", overall_sim_avg, on_epoch=True, sync_dist=True)
+        self.log("val/average_sim_avg", average_sim_avg, on_epoch=True, sync_dist=True)
 
         if self.use_wandb:
             wandb.log({
-                "custom/val_f1": f1_score,
-                "custom/val_acc": accuracy, 
-                "custom/val_overall_sim": overall_sim_average["mean_overall_metric"],
-                "custom/val_average_sim": overall_sim_average["mean_average_metric"],
+                "val/loss_avg": val_loss_avg,
+                "val/f1_avg": f1_avg,
+                "val/accuracy_avg": accuracy_avg,
+                "val/overall_sim_avg": overall_sim_avg,
+                "val/average_sim_avg": average_sim_avg,
                 "step": self.global_step_counter,
                 "epoch": self.current_epoch
             })
+
+        self.print(f"[Val End] Epoch {self.current_epoch} - Loss: {val_loss_avg:.4f}, "
+                   f"F1: {f1_avg:.4f}, Accuracy: {accuracy_avg:.4f}, "
+                   f"Overall Sim: {overall_sim_avg:.4f}, Average Sim: {average_sim_avg:.4f}")
+
+        for metric in self.val_metrics.values():
+            metric.reset()
             
             
 
@@ -287,7 +345,8 @@ def run_training(cfg):
         precision=16 if cfg.train_params.use_fp16 else 32,
         check_val_every_n_epoch = cfg.train_params.val_every_n_epoch,
         val_check_interval = cfg.train_params.n_percentage_val_per_epoch,
-        fast_dev_run=cfg.general.fast_dev_run
+        fast_dev_run=cfg.general.fast_dev_run,
+        num_sanity_val_steps=0
     )
 
     trainer.fit(model, datamodule=data_module)

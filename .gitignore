@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
-
+downsampled_cleaned_chartQa_plotQa_colored/
 
 benetech-mga/
 ChartQa_clean/

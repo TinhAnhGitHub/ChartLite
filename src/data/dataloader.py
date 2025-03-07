@@ -25,7 +25,6 @@ class ChartCollator(DataCollatorWithPadding):
 
         batch["id"] = [feature["id"] for feature in features]
         batch["chart_type"] = [feature["chart_type"] for feature in features]
-
         batch["texts"] = [feature["text"] for feature in features]
         batch["images"] = [feature["image"] for feature in features]
 
