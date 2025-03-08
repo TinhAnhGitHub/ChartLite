@@ -43,15 +43,21 @@ class ChartDataModule(LightningDataModule):
         self.config.model.pad_token_id = self.tokenizer.pad_token_id  
         self.config.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
         self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
-        
+        self.val_size = 0
 
         if valid_files:
             self.train_dataset = ChartDataset(self.config, train_files)
             self.val_dataset = ChartDataset(self.config, valid_files)
+            self.val_size = len(self.val_dataset)
         else:
+            print("Helloo")
             full_dataset = ChartDataset(self.config, train_files)
-            val_size = int(len(full_dataset) * (1 - self.config.dataset.percent_to_take_in_train))
+            val_size = int(len(full_dataset) * self.config.dataset.percent_to_take_in_train)
             train_size = len(full_dataset) - val_size
+            print("trainsize: ", train_size)
+            print("val size: ", val_size)
+            self.val_size = val_size
+            
             self.train_dataset, self.val_dataset = torch.utils.data.random_split(
                 full_dataset, [train_size, val_size]
             )  
@@ -102,7 +108,6 @@ class MatchaLightningModule(LightningModule):
             "average_sim": AverageMeter()
         }
 
-        self.global_step_counter = 0
         self.use_wandb = config.wandb.enabled
 
         self.eval_json = JSONParseEvaluator()
@@ -125,15 +130,15 @@ class MatchaLightningModule(LightningModule):
         self.log('train/loss_step', loss, on_step=True, prog_bar=True)
         self.log('train/loss_avg', loss_avg, on_epoch=True, prog_bar=True)
         self.log('train/learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=True)
+        current_step =self.global_step 
+        print("DEBUG",current_step)
 
         if self.use_wandb:
-            self.global_step_counter += 1
             wandb.log({
                 'train/loss_step_direct': loss.item(),
                 'train/loss_avg_direct': loss_avg,
-                'step': self.global_step_counter,
-                'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr']
-            })
+                'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr'],
+            },step=current_step)
         
         if batch_idx % 50 == 0:
             self.print(f"[Train] Epoch {self.current_epoch} Step {batch_idx} - Loss: {loss:.4f}, Avg Loss: {loss_avg:.4f}")
@@ -174,12 +179,15 @@ class MatchaLightningModule(LightningModule):
             )
 
 
-            generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-            label_texts = batch["texts"]
+            generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            label_texts = batch["texts"][0]
 
             label_dicts = [post_processing(label_texts, TOKEN_MAP)]
             preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
-
+            print(generated_texts)
+            print(label_texts)
+            print(label_dicts)
+            print(preds)
             f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
             accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
 
@@ -189,6 +197,7 @@ class MatchaLightningModule(LightningModule):
                 numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
                 string_tolerance=self.config.metrics_tolerance.string_tolerance
             )
+            print(self.global_step)
 
             self.val_metrics["f1"].update(f1_score, 1)
             self.val_metrics["accuracy"].update(accuracy, 1)
@@ -200,12 +209,30 @@ class MatchaLightningModule(LightningModule):
             accuracy_avg = self.val_metrics["accuracy"].avg
             overall_sim_avg = self.val_metrics["overall_sim"].avg
             average_sim_avg = self.val_metrics["average_sim"].avg
-
+            print(val_loss_avg)
+            print(f1_avg)
+            print(accuracy_avg)
+            print(overall_sim_avg)
+            print(average_sim_avg)
             self.log("val/loss_avg", val_loss_avg, on_epoch=True, sync_dist=True)
             self.log("val/f1_avg", f1_avg, on_epoch=True, prog_bar=True, sync_dist=True)
             self.log("val/accuracy_avg", accuracy_avg, on_epoch=True, sync_dist=True)
             self.log("val/overall_sim_avg", overall_sim_avg, on_epoch=True, sync_dist=True)
             self.log("val/average_sim_avg", average_sim_avg, on_epoch=True, sync_dist=True)
+            last_idx = self.config.val_size //self.config.train_params.val_bs 
+            if batch_idx == last_idx:
+              current_step = self.global_step
+              print("DEBUG",current_step)
+              if self.use_wandb:
+                  wandb.log({
+                      "val/loss_avg": val_loss_avg,
+                      "val/f1_avg": f1_avg,
+                      "val/accuracy_avg": accuracy_avg,
+                      "val/overall_sim_avg": overall_sim_avg,
+                      "val/average_sim_avg": average_sim_avg,
+              },step=current_step)
+        return loss
+
 
     
     def on_validation_epoch_end(self, outputs=None):
@@ -248,6 +275,8 @@ class MatchaLightningModule(LightningModule):
         overall_sim_avg = self.val_metrics["overall_sim"].avg
         average_sim_avg = self.val_metrics["average_sim"].avg
 
+        current_step = self.global_step
+        print("DEBUG",current_step)
         if self.use_wandb:
             wandb.log({
                 "val/loss_avg": val_loss_avg,
@@ -255,10 +284,7 @@ class MatchaLightningModule(LightningModule):
                 "val/accuracy_avg": accuracy_avg,
                 "val/overall_sim_avg": overall_sim_avg,
                 "val/average_sim_avg": average_sim_avg,
-                "step": self.global_step_counter,
-                "epoch": self.current_epoch
-            })
-
+        },step=current_step)
         self.print(f"[Val End] Epoch {self.current_epoch} - Loss: {val_loss_avg:.4f}, "
                    f"F1: {f1_avg:.4f}, Accuracy: {accuracy_avg:.4f}, "
                    f"Overall Sim: {overall_sim_avg:.4f}, Average Sim: {average_sim_avg:.4f}")
@@ -307,6 +333,7 @@ def run_training(cfg):
     data_module = ChartDataModule(cfg)
     data_module.setup()
     tokenizer = data_module.tokenizer
+    cfg.val_size = data_module.val_size
     model = MatchaLightningModule(cfg, tokenizer)
 
     if cfg.wandb.enabled:
@@ -326,7 +353,6 @@ def run_training(cfg):
     )
 
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
-
     callbacks = [
         ModelCheckpoint(
             monitor=cfg.best_ckpt.monitor,
@@ -363,7 +389,7 @@ def run_training(cfg):
         gradient_clip_val=cfg.optimizer.grad_clip_value,
         accumulate_grad_batches=cfg.train_params.grad_accumulation,
         precision=16 if cfg.train_params.use_fp16 else 32,
-        check_val_every_n_epoch = cfg.train_params.val_every_n_epoch,
+        check_val_every_n_epoch = None,
         val_check_interval = cfg.train_params.n_percentage_val_per_epoch,
         fast_dev_run=cfg.general.fast_dev_run,
         num_sanity_val_steps=0
@@ -383,3 +409,4 @@ if __name__ == "__main__":
     config = OmegaConf.create(yaml_config)
 
     run_training(cfg=config)
+
