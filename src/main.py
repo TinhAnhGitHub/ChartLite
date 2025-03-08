@@ -105,6 +105,8 @@ class MatchaLightningModule(LightningModule):
         self.global_step_counter = 0
         self.use_wandb = config.wandb.enabled
 
+        self.eval_json = JSONParseEvaluator()
+
         self.save_hyperparameters()
     
     def forward(self, flattened_patches, attention_mask, labels=None):
@@ -161,7 +163,8 @@ class MatchaLightningModule(LightningModule):
                 attention_mask=batch["attention_mask"],
                 labels=batch["labels"]
             )
-            self.val_metrics["loss"].update(loss.item(), 1)
+
+
 
         
             generated_ids = self.model.backbone.generate(
@@ -169,64 +172,81 @@ class MatchaLightningModule(LightningModule):
                 attention_mask=batch["attention_mask"],
                 generation_config=self.generation_config,
             )
+
+
             generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             label_texts = batch["texts"]
 
-        self.log('val/loss_step', loss, on_step=True, prog_bar=True)
+            label_dicts = [post_processing(label_texts, TOKEN_MAP)]
+            preds = [(batch['id'], post_processing(label_texts, TOKEN_MAP))]
 
+            f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
+            accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
 
-        return {
-            "loss": loss,
-            "ids": batch["id"],
-            "generated_texts": generated_texts,
-            "label_texts": label_texts,
-        }
+            overall_sim_average = self.eval_json.compare_json_list(
+                label_dicts,
+                preds,
+                numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
+                string_tolerance=self.config.metrics_tolerance.string_tolerance
+            )
+
+            self.val_metrics["f1"].update(f1_score, 1)
+            self.val_metrics["accuracy"].update(accuracy, 1)
+            self.val_metrics["overall_sim"].update(overall_sim_average["mean_overall_metric"], 1)
+            self.val_metrics["average_sim"].update(overall_sim_average["mean_average_metric"], 1)
+
+            val_loss_avg = self.val_metrics["loss"].avg
+            f1_avg = self.val_metrics["f1"].avg
+            accuracy_avg = self.val_metrics["accuracy"].avg
+            overall_sim_avg = self.val_metrics["overall_sim"].avg
+            average_sim_avg = self.val_metrics["average_sim"].avg
+
+            self.log("val/loss_avg", val_loss_avg, on_epoch=True, sync_dist=True)
+            self.log("val/f1_avg", f1_avg, on_epoch=True, prog_bar=True, sync_dist=True)
+            self.log("val/accuracy_avg", accuracy_avg, on_epoch=True, sync_dist=True)
+            self.log("val/overall_sim_avg", overall_sim_avg, on_epoch=True, sync_dist=True)
+            self.log("val/average_sim_avg", average_sim_avg, on_epoch=True, sync_dist=True)
+
     
     def on_validation_epoch_end(self, outputs=None):
         if outputs is None:
             return
 
-        all_ids = []
-        all_generated_texts = []
-        all_label_texts = []
+        # all_ids = []
+        # all_generated_texts = []
+        # all_label_texts = []
 
-        for output in outputs:
-            all_ids.extend(output["ids"])
-            all_generated_texts.extend(output["generated_texts"])
-            all_label_texts.extend(output["label_texts"])
+        # for output in outputs:
+        #     all_ids.extend(output["ids"])
+        #     all_generated_texts.extend(output["generated_texts"])
+        #     all_label_texts.extend(output["label_texts"])
 
-        label_dicts = [post_processing(label_str, TOKEN_MAP) for label_str in all_label_texts]
-        preds_dict = [(this_id, post_processing(this_text, TOKEN_MAP))
-                      for this_id, this_text in zip(all_ids, all_generated_texts)]
+        # label_dicts = [post_processing(label_str, TOKEN_MAP) for label_str in all_label_texts]
+        # preds_dict = [(this_id, post_processing(this_text, TOKEN_MAP))
+        #               for this_id, this_text in zip(all_ids, all_generated_texts)]
 
-        eval_json = JSONParseEvaluator()
-        f1_score = eval_json.cal_f1(preds=preds_dict, answers=label_dicts)
-        accuracy = sum([eval_json.cal_acc(pred=pred, answer=label)
-                       for pred, label in zip(preds_dict, label_dicts)]) / len(preds_dict)
+        # eval_json = JSONParseEvaluator()
+        # f1_score = eval_json.cal_f1(preds=preds_dict, answers=label_dicts)
+        # accuracy = sum([eval_json.cal_acc(pred=pred, answer=label)
+        #                for pred, label in zip(preds_dict, label_dicts)]) / len(preds_dict)
 
-        overall_sim_average = eval_json.compare_json_list(
-            label_dicts,
-            preds_dict,
-            numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
-            string_tolerance=self.config.metrics_tolerance.string_tolerance
-        )
+        # overall_sim_average = eval_json.compare_json_list(
+        #     label_dicts,
+        #     preds_dict,
+        #     numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
+        #     string_tolerance=self.config.metrics_tolerance.string_tolerance
+        # )
 
-        self.val_metrics["f1"].update(f1_score, 1)
-        self.val_metrics["accuracy"].update(accuracy, 1)
-        self.val_metrics["overall_sim"].update(overall_sim_average["mean_overall_metric"], 1)
-        self.val_metrics["average_sim"].update(overall_sim_average["mean_average_metric"], 1)
+        # self.val_metrics["f1"].update(f1_score, 1)
+        # self.val_metrics["accuracy"].update(accuracy, 1)
+        # self.val_metrics["overall_sim"].update(overall_sim_average["mean_overall_metric"], 1)
+        # self.val_metrics["average_sim"].update(overall_sim_average["mean_average_metric"], 1)
 
         val_loss_avg = self.val_metrics["loss"].avg
         f1_avg = self.val_metrics["f1"].avg
         accuracy_avg = self.val_metrics["accuracy"].avg
         overall_sim_avg = self.val_metrics["overall_sim"].avg
         average_sim_avg = self.val_metrics["average_sim"].avg
-
-        self.log("val/loss_avg", val_loss_avg, on_epoch=True, sync_dist=True)
-        self.log("val/f1_avg", f1_avg, on_epoch=True, prog_bar=True, sync_dist=True)
-        self.log("val/accuracy_avg", accuracy_avg, on_epoch=True, sync_dist=True)
-        self.log("val/overall_sim_avg", overall_sim_avg, on_epoch=True, sync_dist=True)
-        self.log("val/average_sim_avg", average_sim_avg, on_epoch=True, sync_dist=True)
 
         if self.use_wandb:
             wandb.log({

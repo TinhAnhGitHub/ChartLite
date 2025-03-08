@@ -23,7 +23,7 @@ import random
 # Import custom modules
 from utils import TOKEN_MAP, JSONParseEvaluator, EMA, AverageMeter, init_wandb, setup, cleanup_processes, save_checkpoint, seed_everything, print_gpu_utilization, run_evaluation, as_minutes, print_line
 from data import ChartCollator, ChartDataset
-from models.model import Matcha, AWP
+from models.model import Matcha
 
 BOS_TOKEN = TOKEN_MAP["bos_token"]
 
