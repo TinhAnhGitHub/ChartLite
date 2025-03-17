@@ -1,0 +1,46 @@
+{
+  "os":  "Windows-10-10.0.26100-SP0",
+  "python":  "CPython 3.11.7",
+  "startedAt":  "2025-03-17T05:14:54.467933Z",
+  "args":  [
+    "--config",
+    "D:\\Projects\\School\\Matcha\\configs\\official_config.yaml"
+  ],
+  "program":  "D:\\Projects\\School\\Matcha\\src\\main.py",
+  "codePath":  "src\\main.py",
+  "git":  {
+    "remote":  "https://github.com/TinhAnhGitHub/Matcha.git",
+    "commit":  "48e97a77900157599664b957af178ffbc455c571"
+  },
+  "email":  "anh.nguyennhu2306@hcmut.edu.vn",
+  "root":  "D:\\Projects\\School\\Matcha",
+  "host":  "DESKTOP-6FD6A1R",
+  "executable":  "C:\\Users\\TinhAnh\\miniconda3\\envs\\matcha_env\\python.exe",
+  "codePathLocal":  "src\\main.py",
+  "cpu_count":  14,
+  "cpu_count_logical":  20,
+  "gpu":  "NVIDIA GeForce RTX 3080 Ti",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "588759691264",
+      "used":  "7840620544"
+    }
+  },
+  "memory":  {
+    "total":  "68542046208"
+  },
+  "cpu":  {
+    "count":  14,
+    "countLogical":  20
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce RTX 3080 Ti",
+      "memoryTotal":  "12884901888",
+      "cudaCores":  10240,
+      "architecture":  "Ampere"
+    }
+  ],
+  "cudaVersion":  "12.8"
+}

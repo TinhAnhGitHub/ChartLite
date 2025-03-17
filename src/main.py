@@ -36,6 +36,7 @@ class ChartDataModule(LightningDataModule):
         train_files = glob.glob(os.path.join(directory, "train*.parquet"))
         valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))
 
+
         temp_dataset = ChartDataset(self.config, train_files)
         self.processor = temp_dataset.processor
         self.tokenizer = self.processor.tokenizer
@@ -43,25 +44,20 @@ class ChartDataModule(LightningDataModule):
         self.config.model.pad_token_id = self.tokenizer.pad_token_id  
         self.config.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
         self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
-        self.val_size = 0
 
-        if valid_files:
-            self.train_dataset = ChartDataset(self.config, train_files)
-            self.val_dataset = ChartDataset(self.config, valid_files)
-            self.val_size = len(self.val_dataset)
-        else:
-            print("Helloo")
-            full_dataset = ChartDataset(self.config, train_files)
-            val_size = int(len(full_dataset) * self.config.dataset.percent_to_take_in_train)
-            train_size = len(full_dataset) - val_size
-            print("trainsize: ", train_size)
-            print("val size: ", val_size)
+        
+
+        self.train_dataset = ChartDataset(self.config, train_files)
+        self.val_dataset = ChartDataset(self.config, valid_files)
+        train_size = int(len(self.train_dataset) * self.config.dataset.data_ratio )
+        val_size = int(len(self.val_dataset) * self.config.dataset.data_ratio)
+        if train_size != len(self.train_dataset):
+            self.train_dataset, _ = torch.utils.data.random_split(self.train_dataset, [train_size, len(self.train_dataset) - train_size])
+            self.val_dataset, _ = torch.utils.data.random_split(self.val_dataset, [val_size, len(self.val_dataset) - val_size])
             self.val_size = val_size
-            
-            self.train_dataset, self.val_dataset = torch.utils.data.random_split(
-                full_dataset, [train_size, val_size]
-            )  
-    
+
+
+
     def train_dataloader(self):
         collate_fn = ChartCollator(tokenizer=self.tokenizer)
         return DataLoader(
@@ -70,7 +66,8 @@ class ChartDataModule(LightningDataModule):
             collate_fn=collate_fn,
             num_workers=self.config.train_params.num_workers,
             pin_memory=True,
-            shuffle=True 
+            shuffle=True ,
+            persistent_workers=True
         )
 
     def val_dataloader(self):
@@ -81,7 +78,8 @@ class ChartDataModule(LightningDataModule):
             collate_fn=collate_fn,
             num_workers=self.config.train_params.num_workers,
             pin_memory=True,
-            shuffle=False 
+            shuffle=False ,
+            persistent_workers=True
         )
 
 class MatchaLightningModule(LightningModule):
@@ -91,6 +89,7 @@ class MatchaLightningModule(LightningModule):
         self.tokenizer = tokenizer
         self.model = Matcha(config)
         
+        
         self.generation_config = GenerationConfig(
             max_new_tokens=config.model.max_length_generation,
             do_sample=False,
@@ -99,19 +98,21 @@ class MatchaLightningModule(LightningModule):
         )
 
 
-        self.train_metrics = AverageMeter() # Loss tracking
+        self.train_metrics = {
+            'loss': AverageMeter(),
+            'f1': AverageMeter(),
+            'accuracy': AverageMeter(),
+            'overall_sim': AverageMeter()
+        }
         self.val_metrics = {
             "loss": AverageMeter(),
             "f1": AverageMeter(),
             "accuracy": AverageMeter(),
-            "overall_sim": AverageMeter(),
-            "average_sim": AverageMeter()
+            "overall_sim": AverageMeter()
         }
 
         self.use_wandb = config.wandb.enabled
-
         self.eval_json = JSONParseEvaluator()
-
         self.save_hyperparameters()
     
     def forward(self, flattened_patches, attention_mask, labels=None):
@@ -124,26 +125,56 @@ class MatchaLightningModule(LightningModule):
             labels=batch["labels"]
         )
 
-        self.train_metrics.update(loss,1)
-        loss_avg = self.train_metrics.avg
+        self.train_metrics['loss'].update(loss,1)
+        with torch.no_grad():
+            generated_ids = self.model.backbone.generate(
+                flattened_patches=batch["flattened_patches"],
+                attention_mask=batch["attention_mask"],
+                generation_config=self.generation_config,
+            )
+            generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+            label_texts = batch["texts"][0]
+            label_dicts = [post_processing(label_texts, TOKEN_MAP)]
+            preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
+
+            f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
+            accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
+
+            overall_sim = self.eval_json.compare_json_list(
+                label_dicts, preds,
+                numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
+                string_tolerance=self.config.metrics_tolerance.string_tolerance
+            )
+            self.train_metrics['f1'].update(f1_score, 1)
+            self.train_metrics['accuracy'].update(accuracy, 1)
+            self.train_metrics['overall_sim'].update(overall_sim, 1)
+        
+        current_step = self.global_step
+        loss_avg = self.train_metrics["loss"].avg
+        f1_avg = self.train_metrics["f1"].avg
+        accuracy_avg = self.train_metrics["accuracy"].avg
+        overall_sim_avg = self.train_metrics["overall_sim"].avg
 
         self.log('train/loss_step', loss, on_step=True, prog_bar=True)
-        self.log('train/loss_avg', loss_avg, on_epoch=True, prog_bar=True)
+        self.log('train/loss_avg', loss_avg, on_step=True, prog_bar=True)
+        self.log('train/f1_avg', f1_avg, on_step=True)
+        self.log('train/accuracy_avg', accuracy_avg, on_step=True)
+        self.log('train/overall_sim_avg', overall_sim_avg, on_step=True)
         self.log('train/learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=True)
-        current_step =self.global_step 
-        print("DEBUG",current_step)
 
         if self.use_wandb:
             wandb.log({
-                'train/loss_step_direct': loss.item(),
-                'train/loss_avg_direct': loss_avg,
+                'train/loss_step': loss.item(),
+                'train/loss_avg': loss_avg,
+                'train/f1_avg': f1_avg,
+                'train/accuracy_avg': accuracy_avg,
+                'train/overall_sim_avg': overall_sim_avg,
                 'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr'],
-            },step=current_step)
+            }, step=current_step)
         
         if batch_idx % 50 == 0:
-            self.print(f"[Train] Epoch {self.current_epoch} Step {batch_idx} - Loss: {loss:.4f}, Avg Loss: {loss_avg:.4f}")
-        
-            
+            self.print(f"[Train] Step {current_step} - Loss: {loss:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}, OverallSim: {overall_sim:.4f}")
             
             
         return loss
@@ -169,153 +200,71 @@ class MatchaLightningModule(LightningModule):
                 labels=batch["labels"]
             )
 
+            self.val_metrics["loss"].update(loss.item(), 1)
 
-
-        
             generated_ids = self.model.backbone.generate(
                 flattened_patches=batch["flattened_patches"],
                 attention_mask=batch["attention_mask"],
                 generation_config=self.generation_config,
             )
 
-
             generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
             label_texts = batch["texts"][0]
 
             label_dicts = [post_processing(label_texts, TOKEN_MAP)]
             preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
-            print(generated_texts)
-            print(label_texts)
-            print(label_dicts)
-            print(preds)
+
             f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
             accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
 
-            overall_sim_average = self.eval_json.compare_json_list(
-                label_dicts,
-                preds,
+            overall_sim = self.eval_json.compare_json_list(
+                label_dicts, preds,
                 numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
                 string_tolerance=self.config.metrics_tolerance.string_tolerance
             )
-            print(self.global_step)
 
             self.val_metrics["f1"].update(f1_score, 1)
             self.val_metrics["accuracy"].update(accuracy, 1)
-            self.val_metrics["overall_sim"].update(overall_sim_average["mean_overall_metric"], 1)
-            self.val_metrics["average_sim"].update(overall_sim_average["mean_average_metric"], 1)
+            self.val_metrics["overall_sim"].update(overall_sim, 1)
 
-            val_loss_avg = self.val_metrics["loss"].avg
-            f1_avg = self.val_metrics["f1"].avg
-            accuracy_avg = self.val_metrics["accuracy"].avg
-            overall_sim_avg = self.val_metrics["overall_sim"].avg
-            average_sim_avg = self.val_metrics["average_sim"].avg
-            print(val_loss_avg)
-            print(f1_avg)
-            print(accuracy_avg)
-            print(overall_sim_avg)
-            print(average_sim_avg)
-            self.log("val/loss_avg", val_loss_avg, on_epoch=True, sync_dist=True)
-            self.log("val/f1_avg", f1_avg, on_epoch=True, prog_bar=True, sync_dist=True)
-            self.log("val/accuracy_avg", accuracy_avg, on_epoch=True, sync_dist=True)
-            self.log("val/overall_sim_avg", overall_sim_avg, on_epoch=True, sync_dist=True)
-            self.log("val/average_sim_avg", average_sim_avg, on_epoch=True, sync_dist=True)
-            last_idx = self.config.val_size //self.config.train_params.val_bs 
-            if batch_idx == last_idx:
-              current_step = self.global_step
-              print("DEBUG",current_step)
-              if self.use_wandb:
-                  wandb.log({
-                      "val/loss_avg": val_loss_avg,
-                      "val/f1_avg": f1_avg,
-                      "val/accuracy_avg": accuracy_avg,
-                      "val/overall_sim_avg": overall_sim_avg,
-                      "val/average_sim_avg": average_sim_avg,
-              },step=current_step)
         return loss
 
-
+    def on_validation_epoch_start(self):
+        for metric in self.val_metrics.values():
+            metric.reset()
     
     def on_validation_epoch_end(self, outputs=None):
-        if outputs is None:
-            return
-
-        # all_ids = []
-        # all_generated_texts = []
-        # all_label_texts = []
-
-        # for output in outputs:
-        #     all_ids.extend(output["ids"])
-        #     all_generated_texts.extend(output["generated_texts"])
-        #     all_label_texts.extend(output["label_texts"])
-
-        # label_dicts = [post_processing(label_str, TOKEN_MAP) for label_str in all_label_texts]
-        # preds_dict = [(this_id, post_processing(this_text, TOKEN_MAP))
-        #               for this_id, this_text in zip(all_ids, all_generated_texts)]
-
-        # eval_json = JSONParseEvaluator()
-        # f1_score = eval_json.cal_f1(preds=preds_dict, answers=label_dicts)
-        # accuracy = sum([eval_json.cal_acc(pred=pred, answer=label)
-        #                for pred, label in zip(preds_dict, label_dicts)]) / len(preds_dict)
-
-        # overall_sim_average = eval_json.compare_json_list(
-        #     label_dicts,
-        #     preds_dict,
-        #     numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
-        #     string_tolerance=self.config.metrics_tolerance.string_tolerance
-        # )
-
-        # self.val_metrics["f1"].update(f1_score, 1)
-        # self.val_metrics["accuracy"].update(accuracy, 1)
-        # self.val_metrics["overall_sim"].update(overall_sim_average["mean_overall_metric"], 1)
-        # self.val_metrics["average_sim"].update(overall_sim_average["mean_average_metric"], 1)
-
+        current_step = self.global_step
         val_loss_avg = self.val_metrics["loss"].avg
         f1_avg = self.val_metrics["f1"].avg
         accuracy_avg = self.val_metrics["accuracy"].avg
         overall_sim_avg = self.val_metrics["overall_sim"].avg
-        average_sim_avg = self.val_metrics["average_sim"].avg
-
-        current_step = self.global_step
-        print("DEBUG",current_step)
         if self.use_wandb:
             wandb.log({
                 "val/loss_avg": val_loss_avg,
                 "val/f1_avg": f1_avg,
                 "val/accuracy_avg": accuracy_avg,
                 "val/overall_sim_avg": overall_sim_avg,
-                "val/average_sim_avg": average_sim_avg,
-        },step=current_step)
-        self.print(f"[Val End] Epoch {self.current_epoch} - Loss: {val_loss_avg:.4f}, "
-                   f"F1: {f1_avg:.4f}, Accuracy: {accuracy_avg:.4f}, "
-                   f"Overall Sim: {overall_sim_avg:.4f}, Average Sim: {average_sim_avg:.4f}")
+            }, step=current_step)
 
-        for metric in self.val_metrics.values():
-            metric.reset()
-            
-            
+        self.print(f"[Val End] Step {current_step} - Loss: {val_loss_avg:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}")
 
-    
 
     def configure_optimizers(self):
         optimizer = Adafactor(
-            self.model.parameters(),
-            scale_parameter=False, relative_step=False,
-            lr=self.config.optimizer.lr,
-            weight_decay=self.config.optimizer.weight_decay,
+            params=self.model.parameters(),
+            scale_parameter=False,
+            relative_step=False,
+            lr = float(self.config.optimizer.lr),
+            weight_decay= float(self.config.optimizer.weight_decay)
         )
-
-        estimated_steps_per_epoch = self.config.train_params.estimated_steps_per_epoch
-
-        num_update_steps_per_epoch = estimated_steps_per_epoch // self.config.train_params.grad_accumulation
-
-        num_training_steps = self.config.train_params.num_epochs * num_update_steps_per_epoch
-
-        num_warmup_steps = int(self.config.learning_rate_scheduler.warmup_pct * num_training_steps)
+        max_steps = self.config.train_params.max_steps
+        num_warmup_steps = int(self.config.learning_rate_scheduler.warmup_pct * max_steps)
 
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
             num_warmup_steps=num_warmup_steps,
-            num_training_steps=num_training_steps
+            num_training_steps=max_steps
         )
         return {
             "optimizer": optimizer,
@@ -340,30 +289,25 @@ def run_training(cfg):
         wandb.init(
             project=cfg.wandb.project,
             name=cfg.wandb.run_name,
-            config=OmegaConf.to_container(cfg, resolve=True)
+            config=OmegaConf.to_container(cfg, resolve=True),
+            entity='matcha_hehe'
         )
         
 
 
-    swa_callback = StochasticWeightAveraging(
-        swa_epoch_start=cfg.train_params.get("swa_epoch_start", 0.5),   
-        swa_lrs=cfg.train_params.get("swa_lrs", 0.05),
-        annealing_epochs=cfg.train_params.get("swa_annealing_epochs", 10),
-        annealing_strategy=cfg.train_params.get("swa_annealing_strategy", "cos")
-    )
-
+    
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     callbacks = [
         ModelCheckpoint(
             monitor=cfg.best_ckpt.monitor,
             mode=cfg.best_ckpt.mode,
             save_top_k=cfg.best_ckpt.save_top_k,
-            filename="best-checkpoint-{epoch:02d}-{val_f1:.4f}",
+            filename="best-checkpoint-{step}-{val_f1_avg:.4f}",
             dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
         ),
         ModelCheckpoint(
             save_last=True,
-            filename="last-checkpoint-{epoch:02d}-{val_f1:.4f}",
+            filename="last-checkpoint-{step}",
             every_n_train_steps=cfg.train_params.save_every_n_train_steps,
             every_n_epochs=None,
             dirpath=os.path.join(checkpoint_dir, 'last_ckpts')
@@ -371,28 +315,30 @@ def run_training(cfg):
         EarlyStopping(
             monitor=cfg.early_stopping.monitor,
             patience=cfg.early_stopping.patience,
-            mode = cfg.early_stopping.mode
+            mode=cfg.early_stopping.mode,
+            check_on_train_epoch_end=False
         ),
         LearningRateMonitor(logging_interval='step'),
         Timer(),
-        swa_callback,
         TQDMProgressBar(refresh_rate=20)
-
     ]
-    
+
     trainer = Trainer(
-        max_epochs=cfg.train_params.num_epochs,
+        max_steps=cfg.train_params.max_steps,
+        max_epochs=None,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=torch.cuda.device_count() if torch.cuda.is_available() else 1,
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
         callbacks=callbacks,
         gradient_clip_val=cfg.optimizer.grad_clip_value,
         accumulate_grad_batches=cfg.train_params.grad_accumulation,
-        precision=16 if cfg.train_params.use_fp16 else 32,
-        check_val_every_n_epoch = None,
-        val_check_interval = cfg.train_params.n_percentage_val_per_epoch,
+        precision= '16-mixed' if cfg.train_params.use_fp16_mixed else 32,
+        check_val_every_n_epoch=None,
+        val_check_interval=cfg.train_params.val_check_interval,
         fast_dev_run=cfg.general.fast_dev_run,
-        num_sanity_val_steps=0
+        num_sanity_val_steps=0,
+        enable_checkpointing=True,
+        logger=True
     )
 
     trainer.fit(model, datamodule=data_module)

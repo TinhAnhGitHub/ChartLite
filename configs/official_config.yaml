@@ -12,6 +12,7 @@ model:
   decoder_start_token_id: ???
   bos_token_id: ???
   max_length_generation: 512
+  frozen_percentage: 0.4
 
 
 train_params:
@@ -19,32 +20,21 @@ train_params:
   # = 38GB VRAM = 16 * 2 GB VRAM
   val_bs: 2
   # = ??? cung cung 16 + 38 GB VRAM = 54 GB VRAM > 58GB VRAM
-  num_epochs: 4
-  grad_accumulation: 16
-  use_fp16: true
+  max_steps: 58624  
+  grad_accumulation: 4
+  use_fp16_mixed: true
   num_workers: 4
-  swa_epoch_start: 0.7
-  swa_lrs: 0.0005
-  val_every_n_epoch: 1
-  n_percentage_val_per_epoch: 0.0015
-  swa_annealing_epochs: 3
-  swa_annealing_strategy: cos
-  estimated_steps_per_epoch: 732790
-  save_every_n_train_steps: 50
+  val_check_interval: 5
+  save_every_n_train_steps: 500
 
 optimizer:
-  lr: 0.01
-  weight_decay: 0.00005
+  lr: 1e-4
+  weight_decay: 0.005
   grad_clip_value: 1.0
 
 learning_rate_scheduler:
-  warmup_pct: 0.01
-# total step for 1 epoch = 14656 step
-# 4 epeoch = 58624
-#2200  step = 0.15 epoch
-#586 step = 0.04 epoch
-# 146 p = 2h20
-#9h10 chay dc 0.15 epoch  = 2200 step
+  warmup_pct: 0.0
+
 
 
 
@@ -53,7 +43,7 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: /content/model_dir
+  model_dir: ./run_expr
 
 best_ckpt:
   monitor: 'val/overall_sim_avg'
@@ -69,14 +59,14 @@ early_stopping:
 
 dataset:
   parquet_dict: D:\Projects\School\Matcha\downsampled_cleaned_chartQa_plotQa_colored\data
-  percent_to_take_in_train: 0.006711409396
+  data_ratio: 0.001
 
 
 
 wandb:
-  enabled: false
+  enabled: enable
   project: mga-dev-a1
-  run_name: experiment-3
+  run_name: experiment-bug
 
 
 images:

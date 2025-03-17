@@ -284,8 +284,7 @@ class JSONParseEvaluator:
         total_keys = len(val_metrics)
         correct_matches = sum(1 for _, score in val_metrics if score == 1)
         overall_metric = correct_matches / total_keys if total_keys > 0 else 0.0
-        average_metric = sum(score for _, score in val_metrics) / total_keys if total_keys > 0 else 0.0
-        return overall_metric, average_metric
+        return overall_metric
 
 
     def compare_json_list(
@@ -310,19 +309,14 @@ class JSONParseEvaluator:
         """
 
         overall_metrics = []
-        average_metrics = []
 
 
         for gt_json, pred_json in zip(gt_jsons, pred_jsons):
-            overall_metric, average_metric = self.compare_json(gt_json, pred_json, numeric_tolerance, string_tolerance)
+            overall_metric = self.compare_json(gt_json, pred_json, numeric_tolerance, string_tolerance)
             overall_metrics.append(overall_metric)
-            average_metrics.append(average_metric)
 
-        return {
-            "mean_overall_metric": sum(overall_metrics) / len(overall_metrics) if overall_metrics else 0,
-            "mean_average_metric": sum(average_metrics) / len(average_metrics) if average_metrics else 0
-        }
-
+        return sum(overall_metrics) / len(overall_metrics)
+    
     def construct_tree_from_dict(self, data: Union[Dict, List], node_name: str = None):
         """
         Convert Dictionary into Tree
@@ -418,3 +412,182 @@ class JSONParseEvaluator:
         normalized_distance = ted_pred / ted_empty if ted_empty != 0 else 0
         accuracy = max(1 - normalized_distance, 0)
         return accuracy
+
+
+if __name__ == "__main__":
+    evaluator = JSONParseEvaluator()
+
+    # f1_test_cases = [
+    #     {
+    #         "description": "Identical JSON",
+    #         "pred": {"a": "1", "b": "2"},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Missing Field in Prediction",
+    #         "pred": {"a": "1"},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Extra Field in Prediction",
+    #         "pred": {"a": "1", "b": "2", "c": "3"},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Slight String Difference Within Tolerance",
+    #         "pred": {"a": "hello"},
+    #         "answer": {"a": "helo"}
+    #     },
+    #     {
+    #         "description": "Different String Outside Tolerance",
+    #         "pred": {"a": "cat"},
+    #         "answer": {"a": "dog"}
+    #     },
+    #     {
+    #         "description": "Numeric Values Within Tolerance (5% Difference)",
+    #         "pred": {"a": 104},  # 5% above 100
+    #         "answer": {"a": 100}
+    #     },
+    #     {
+    #         "description": "Numeric Values Outside Tolerance",
+    #         "pred": {"a": 120},
+    #         "answer": {"a": 100}
+    #     },
+    #     {
+    #         "description": "Nested JSON Identical",
+    #         "pred": {"a": {"b": "c", "d": "e"}},
+    #         "answer": {"a": {"b": "c", "d": "e"}}
+    #     },
+    #     {
+    #         "description": "Nested JSON Different",
+    #         "pred": {"a": {"b": "c", "d": "x"}},
+    #         "answer": {"a": {"b": "c", "d": "e"}}
+    #     },
+    #     {
+    #         "description": "List Values Identical",
+    #         "pred": {"a": ["x", "1"]},
+    #         "answer": {"a": ["x", "y"]}
+    #     },
+    # ]
+
+    # for case in f1_test_cases:
+    #     # Note: cal_f1 expects lists of JSON objects.
+    #     f1_score = evaluator.cal_f1([case["pred"]], [case["answer"]])
+    #     print(f"{case['description']}: F1 Score = {f1_score:.4f}")
+
+    
+    
+    # print("\n=== nTED Accuracy Test Cases ===")
+    # acc_test_cases = [
+    #     {
+    #         "description": "Identical JSON",
+    #         "pred": {"a": "1", "b": "2"},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Prediction Empty",
+    #         "pred": {},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Slight Difference in Value",
+    #         "pred": {"a": "1", "b": "2"},
+    #         "answer": {"a": "1", "b": "3"}
+    #     },
+    #     {
+    #         "description": "Missing Field in Prediction",
+    #         "pred": {"a": "1"},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Extra Field in Prediction",
+    #         "pred": {"a": "1", "b": "2", "c": "3"},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Nested JSON Identical",
+    #         "pred": {"a": {"b": "2"}},
+    #         "answer": {"a": {"b": "2"}}
+    #     },
+    #     {
+    #         "description": "Nested JSON Difference",
+    #         "pred": {"a": {"b": "2"}},
+    #         "answer": {"a": {"b": "3"}}
+    #     },
+    #     {
+    #         "description": "Different Ordering of Keys",
+    #         "pred": {"b": "2", "a": "1"},
+    #         "answer": {"a": "1", "b": "2"}
+    #     },
+    #     {
+    #         "description": "Array of Objects Identical",
+    #         "pred": {"a": [{"b": "1"}, {"c": "2"}]},
+    #         "answer": {"a": [{"b": "1"}, {"c": "2"}]}
+    #     },
+    #     {
+    #         "description": "Array of Objects Different",
+    #         "pred": {"a": [{"b": "1"}, {"c": "3"}]},
+    #         "answer": {"a": [{"b": "1"}, {"c": "2"}]}
+    #     },
+    # ]
+
+    # for case in acc_test_cases:
+    #     accuracy = evaluator.cal_acc(case["pred"], case["answer"])
+    #     print(f"{case['description']}: nTED Accuracy = {accuracy:.4f}")
+
+    # print("=== Testing compute_metric ===")
+    # # Test 1: Numeric within tolerance
+    # result1 = evaluator.compute_metric(100, 105, numeric_tolerance=0.1, string_tolerange=1)
+    # print("Test 1 (Numeric within tolerance): Expected True, Got:", result1)
+
+    # # Test 2: Numeric outside tolerance
+    # result2 = evaluator.compute_metric(100, 120, numeric_tolerance=0.1, string_tolerange=1)
+    # print("Test 2 (Numeric outside tolerance): Expected False, Got:", result2)
+
+    # # Test 3: Numeric strings convertible to numbers (within tolerance)
+    # result3 = evaluator.compute_metric("100", "103", numeric_tolerance=0.05, string_tolerange=1)
+    # print("Test 3 (Numeric strings within tolerance): Expected True, Got:", result3)
+
+    # # Test 4: String with small edit distance (within tolerance)
+    # result4 = evaluator.compute_metric("hello", "helo", numeric_tolerance=0.05, string_tolerange=1)
+    # print("Test 4 (String within tolerance): Expected True, Got:", result4)
+
+    # # Test 5: String with edit distance greater than tolerance
+    # result5 = evaluator.compute_metric("cat", "dog", numeric_tolerance=0.05, string_tolerange=1)
+    # print("Test 5 (String outside tolerance): Expected False, Got:", result5)
+
+    # print("\n=== Testing compare_json ===")
+    # gt1 = {"a": "1", "b": "2"}
+    # pred1 = {"a": "1", "b": "2"}
+    # overall1 = evaluator.compare_json(gt1, pred1)
+    # print("Test case 1 (Identical JSON): overall_metric =", overall1)
+
+    # gt2 = {"a": "1", "b": "3"}
+    # pred2 = {"a": "1", "b": "2"}
+    # overall2 = evaluator.compare_json(gt2, pred2)
+    # print("Test case 2 (One differing field): overall_metric =", overall2)
+
+    # gt3 = {"a": "1", "b": "2"}
+    # pred3 = {"a": "1", "b": "2", "c": "3"}
+    # overall3 = evaluator.compare_json(gt3, pred3)
+    # print("Test case 3 (Extra field in prediction): overall_metric =", overall3)
+
+    # gt4 = {"a": "1", "b": "2"}
+    # pred4 = {"a": "1"}
+    # overall4 = evaluator.compare_json(gt4, pred4)
+    # print("Test case 4 (Missing field in prediction): overall_metric =", overall4)
+
+    # gt5 = {"a": {"b": "x"}}
+    # pred5 = {"a": {"b": "y"}}
+    # overall5 = evaluator.compare_json(gt5, pred5)
+    # print("Test case 5 (Nested JSON difference): overall_metric =", overall5)
+
+    # gt = {"chart_type": "dot_line", "plot_bb": {"x0": 20, "y0": 23, "x2": 509, "y2": 463}, "data_series": [{"x": "2000", "y": "26", "color": "amaranth_red"}, {"x": "2005", "y": "36", "color": "amaranth_red"}, {"x": "2010", "y": "57", "color": "amaranth_red"}], "text_display": [{"polygon": {"x0": 40, "y0": 471, "x2": 490, "y2": 490}, "text": ["2000", "2005", "2010"], "colors": [], "role": "x_axis"}, {"polygon": {"x0": 11, "y0": 82, "x2": 16, "y2": 467}, "text": ["0", "10", "20", "30", "40", "50"], "colors": [], "role": "y_axis"}, {"polygon": {"x0": 21, "y0": 7, "x2": 295, "y2": 21}, "text": "Percentage of infants who were provided with ARI treatment in Armenia", "colors": [], "role": "title"}]}
+
+    # prediction = {"chart_type": "dot_line", "plot_bb": {"x0": 21, "y0": 25, "x2": 504, "y2": 463}, "data_series": [{"x": "2020", "y": "26", "color": "art_red"}, {"x": "2005", "y": "36", "cor": "arah_red"}, {"x": "21", "y": "57", "color": "amaranth_red"}], "text_display": [{"polygon": {"x0": 40, "y0": 471, "x2": 490, "y2": 490}, "text": ["00", "2005", "2010"], "colors": [], "role": "x_axis"}, {"polygon": {"x0": 11, "y0": 82, "x2": 16, "y2": 467}, "text": ["0", "10", "20", "30", "40", "50"], "colors": [], "role": "y_axis"}, {"polygon": {"x0": 21, "y0": 7, "x2": 295, "y2": 21}, "text": " of infants who were provided with ARI treatment in Armenia", "cors": [], "role": "title"}]}
+
+    # print(f"F1 metric: {evaluator.cal_f1([gt], [prediction])}")
+    # print(f"Accuracy metric: {evaluator.cal_acc([gt], [prediction])}")
+
+    # print(f"Compute overall metric: {evaluator.compare_json_list([gt], [prediction], numeric_tolerance=0.05, string_tolerance=1)}")
+

@@ -30,7 +30,8 @@ class Matcha(nn.Module):
 
         print("Freezing the encoder...")
         num_hidden_layers = self.backbone.config.vision_config.num_hidden_layers
-        to_freeze_layer = int(0.4 * num_hidden_layers)
+        
+        to_freeze_layer = int(cfg.model.frozen_percentage * num_hidden_layers)
         for layer in self.backbone.encoder.encoder.layer[to_freeze_layer:]:
             for param in layer.parameters():
                 param.requires_grad = False
