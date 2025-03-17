@@ -8,7 +8,8 @@ __pycache__/
 
 downsampled_cleaned_chartQa_plotQa_colored/
 
-
+run_expr/
+wandb/
 lightning_logs/
 benetech-mga/
 ChartQa_clean/

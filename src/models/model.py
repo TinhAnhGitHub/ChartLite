@@ -45,7 +45,6 @@ class Matcha(nn.Module):
         self.backbone.decoder.resize_token_embeddings(cfg.model.len_tokenizer)
         print("Finished resizing")
 
-        # Define loss function
         self.loss_fn = nn.CrossEntropyLoss(
             ignore_index=-100,
             reduction="mean",
@@ -65,12 +64,7 @@ class Matcha(nn.Module):
 
         loss_main = outputs.loss
         
-        # loss = loss_main  
-
-        # loss_dict = {
-        #     "loss_main": loss_main,
-        #     "loss_cls": loss,
-        # }
+        
 
         return loss_main
     

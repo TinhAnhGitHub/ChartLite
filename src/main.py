@@ -1,7 +1,7 @@
 import os
 import glob
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, DistributedSampler
 from transformers import get_cosine_schedule_with_warmup, GenerationConfig
 from transformers.optimization import Adafactor
 
@@ -60,25 +60,41 @@ class ChartDataModule(LightningDataModule):
 
     def train_dataloader(self):
         collate_fn = ChartCollator(tokenizer=self.tokenizer)
+
+        train_sampler = DistributedSampler(
+            self.train_dataset,
+            num_replicas=self.trainer.world_size,  
+            rank=self.trainer.global_rank,         
+            shuffle=True                           
+        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+
         return DataLoader(
             self.train_dataset,
             batch_size=self.config.train_params.train_bs,
             collate_fn=collate_fn,
             num_workers=self.config.train_params.num_workers,
             pin_memory=True,
-            shuffle=True ,
+            shuffle=(train_sampler is None),       
+            sampler=train_sampler,                 
             persistent_workers=True
         )
 
     def val_dataloader(self):
         collate_fn = ChartCollator(tokenizer=self.tokenizer)
+        val_sampler = DistributedSampler(
+            self.val_dataset,
+            num_replicas=self.trainer.world_size,
+            rank=self.trainer.global_rank,
+            shuffle=False                          
+        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
         return DataLoader(
             self.val_dataset,
             batch_size=self.config.train_params.val_bs,
             collate_fn=collate_fn,
             num_workers=self.config.train_params.num_workers,
             pin_memory=True,
-            shuffle=False ,
+            shuffle=False,                         
+            sampler=val_sampler,                  
             persistent_workers=True
         )
 
@@ -173,8 +189,8 @@ class MatchaLightningModule(LightningModule):
                 'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr'],
             }, step=current_step)
         
-        if batch_idx % 50 == 0:
-            self.print(f"[Train] Step {current_step} - Loss: {loss:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}, OverallSim: {overall_sim:.4f}")
+        if batch_idx % 50 == 0 and self.global_rank == 0:
+            self.print(f"[Train Rank {self.global_rank}] Step {current_step} - Loss: {loss:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}, OverallSim: {overall_sim:.4f}")
             
             
         return loss
@@ -189,8 +205,12 @@ class MatchaLightningModule(LightningModule):
                 'epoch': self.current_epoch
             })
 
-        self.print(f"[Train End] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f}")
-        self.train_metrics.reset()
+        if self.global_rank == 0:
+            self.print(f"[Train End Rank {self.global_rank}] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f}")
+        self.train_metrics['loss'].reset() 
+        self.train_metrics['f1'].reset()
+        self.train_metrics['accuracy'].reset()
+        self.train_metrics['overall_sim'].reset()
         
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
@@ -227,18 +247,28 @@ class MatchaLightningModule(LightningModule):
             self.val_metrics["accuracy"].update(accuracy, 1)
             self.val_metrics["overall_sim"].update(overall_sim, 1)
 
+        self.log('val/loss_step', loss.item(), on_step=True, prog_bar=True)
+        self.log('val/f1_step', f1_score, on_step=True)
+        self.log('val/accuracy_step', accuracy, on_step=True)
+        self.log('val/overall_sim_step', overall_sim, on_step=True)
         return loss
 
     def on_validation_epoch_start(self):
         for metric in self.val_metrics.values():
             metric.reset()
     
-    def on_validation_epoch_end(self, outputs=None):
+    def on_validation_epoch_end(self):
         current_step = self.global_step
         val_loss_avg = self.val_metrics["loss"].avg
         f1_avg = self.val_metrics["f1"].avg
         accuracy_avg = self.val_metrics["accuracy"].avg
         overall_sim_avg = self.val_metrics["overall_sim"].avg
+
+        self.log('val/loss_avg', val_loss_avg, on_epoch=True, prog_bar=True)
+        self.log('val/f1_avg', f1_avg, on_epoch=True, prog_bar=True)
+        self.log('val/accuracy_avg', accuracy_avg, on_epoch=True)
+        self.log('val/overall_sim_avg', overall_sim_avg, on_epoch=True) 
+        
         if self.use_wandb:
             wandb.log({
                 "val/loss_avg": val_loss_avg,
@@ -247,7 +277,8 @@ class MatchaLightningModule(LightningModule):
                 "val/overall_sim_avg": overall_sim_avg,
             }, step=current_step)
 
-        self.print(f"[Val End] Step {current_step} - Loss: {val_loss_avg:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}")
+        if self.global_rank == 0:
+            self.print(f"[Val End Rank {self.global_rank}] Step {current_step} - Loss: {val_loss_avg:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}")
 
 
     def configure_optimizers(self):
@@ -295,7 +326,14 @@ def run_training(cfg):
         
 
 
+    os.environ["MASTER_ADDR"] = "11.84.11.29"
+    os.environ["MASTER_PORT"] = "53154"
     
+    os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
+    
+    vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
+    os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
+
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     callbacks = [
         ModelCheckpoint(
@@ -339,7 +377,8 @@ def run_training(cfg):
         fast_dev_run=cfg.general.fast_dev_run,
         num_sanity_val_steps=0,
         enable_checkpointing=True,
-        logger=True
+        logger=True,
+        
     )
 
     trainer.fit(model, datamodule=data_module)

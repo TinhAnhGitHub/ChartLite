@@ -72,3 +72,9 @@ wandb:
 images:
   rsz_height: 512
   rsz_width: 512
+
+
+vpn:
+  nodes: 2
+  devices : 2
+  name: matcha_t
