@@ -351,7 +351,13 @@ def run_training(cfg):
         annealing_epochs=cfg.train_params.get("swa_annealing_epochs", 10),
         annealing_strategy=cfg.train_params.get("swa_annealing_strategy", "cos")
     )
-
+    os.environ["MASTER_ADDR"] = "11.84.11.29"
+    os.environ["MASTER_PORT"] = "53154"
+    
+    os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
+    
+    vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
+    os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     callbacks = [
         ModelCheckpoint(
@@ -383,7 +389,8 @@ def run_training(cfg):
     trainer = Trainer(
         max_epochs=cfg.train_params.num_epochs,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=torch.cuda.device_count() if torch.cuda.is_available() else 1,
+        devices=torch.cuda.device_count() if torch.cuda.is_available() else cfg.vpn.devices,
+        num_nodes=cfg.vpn.nodes,
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
         callbacks=callbacks,
         gradient_clip_val=cfg.optimizer.grad_clip_value,
