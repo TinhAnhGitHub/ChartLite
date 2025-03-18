@@ -3,7 +3,8 @@ import glob
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
 from transformers import get_cosine_schedule_with_warmup, GenerationConfig
-from transformers.optimization import Adafactor
+from torch.optim import AdamW
+# from transformers.optimization import Adafactor
 
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, StochasticWeightAveraging, TQDMProgressBar
@@ -286,20 +287,20 @@ class MatchaLightningModule(LightningModule):
 
 
     def configure_optimizers(self):
-        optimizer = Adafactor(
+        optimizer = AdamW(
             params=self.model.parameters(),
-            scale_parameter=False,
-            relative_step=False,
             lr = float(self.config.optimizer.lr),
             weight_decay= float(self.config.optimizer.weight_decay)
         )
         max_steps = self.config.train_params.max_steps
         num_warmup_steps = int(self.config.learning_rate_scheduler.warmup_pct * max_steps)
+        num_cycles = self.config.learning_rate_scheduler.num_cycles
 
         scheduler = get_cosine_schedule_with_warmup(
             optimizer,
             num_warmup_steps=num_warmup_steps,
-            num_training_steps=max_steps
+            num_training_steps=max_steps,
+            num_cycles
         )
         return {
             "optimizer": optimizer,

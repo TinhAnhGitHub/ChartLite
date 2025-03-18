@@ -34,12 +34,13 @@ train_params:
   ema_cpu_offload: True # Set to True to store EMA weights on CPU to save GPU memory
   
 optimizer:
-  lr: 1e-4
-  weight_decay: 0.005
+  lr: 5e-5
+  weight_decay: 0.01
   grad_clip_value: 1.0
 
 learning_rate_scheduler:
   warmup_pct: 0.0
+  num_cycles: 900
 
 
 
