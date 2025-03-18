@@ -197,7 +197,7 @@ class MatchaLightningModule(LightningModule):
         return loss
 
     def on_train_epoch_end(self):
-        epoch_loss = self.train_metrics.avg
+        epoch_loss = self.train_metrics['loss'].avg
         self.log('train/epoch_loss', epoch_loss, on_epoch=True)
 
         if self.use_wandb:
