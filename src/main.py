@@ -8,18 +8,17 @@ from transformers.optimization import Adafactor
 from pytorch_lightning import LightningDataModule, LightningModule, Trainer, seed_everything
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, StochasticWeightAveraging, TQDMProgressBar
 
-
+import warnings
 import wandb
 import yaml
 import argparse
 from  omegaconf import OmegaConf
 
-from utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter
+from utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter, EMA
 from data import ChartCollator, ChartDataset
 from models import Matcha
-
+warnings.filterwarnings("ignore")
 BOS_TOKEN = TOKEN_MAP["bos_token"]
-
 torch.set_float32_matmul_precision('medium')
 
 class ChartDataModule(LightningDataModule):
@@ -30,6 +29,7 @@ class ChartDataModule(LightningDataModule):
         self.tokenizer = None
         self.train_dataset = None
         self.val_dataset = None
+        self.val_size = None
     
     def setup(self, stage=None):
         directory = self.config.dataset.parquet_dict
@@ -101,6 +101,7 @@ class ChartDataModule(LightningDataModule):
 class MatchaLightningModule(LightningModule):
     def __init__(self, config, tokenizer):
         super().__init__()
+        
         self.config = config
         self.tokenizer = tokenizer
         self.model = Matcha(config)
@@ -326,13 +327,15 @@ def run_training(cfg):
         
 
 
-    os.environ["MASTER_ADDR"] = "11.84.11.29"
-    os.environ["MASTER_PORT"] = "53154"
+    # os.environ["MASTER_ADDR"] = "11.84.11.29"
+    # os.environ["MASTER_PORT"] = "53154"
     
-    os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
+    # os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
     
-    vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
-    os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
+    # vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
+    # os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
+    
+    
 
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     callbacks = [
@@ -358,15 +361,25 @@ def run_training(cfg):
         ),
         LearningRateMonitor(logging_interval='step'),
         Timer(),
-        TQDMProgressBar(refresh_rate=20)
+        TQDMProgressBar(refresh_rate=20),
+        
     ]
+
+    if cfg.train_params.ema_enable:
+        callbacks.append(
+            EMA(
+                decay = cfg.train_params.ema_decay,
+                validate_original_weights= cfg.train_params.ema_validate_original_weights,
+                every_n_steps= cfg.train_params.ema_every_n_steps,
+                cpu_offload=cfg.train_params.ema_cpu_offload
+            )
+        )
 
     trainer = Trainer(
         max_steps=cfg.train_params.max_steps,
         max_epochs=None,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=torch.cuda.device_count() if torch.cuda.is_available() else cfg.vpn.devices,
-        num_nodes=cfg.vpn.nodes,
+        devices=torch.cuda.device_count(),
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
         callbacks=callbacks,
         gradient_clip_val=cfg.optimizer.grad_clip_value,
