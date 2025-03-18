@@ -300,7 +300,7 @@ class MatchaLightningModule(LightningModule):
             optimizer,
             num_warmup_steps=num_warmup_steps,
             num_training_steps=max_steps,
-            num_cycles
+            num_cycles=num_cycles
         )
         return {
             "optimizer": optimizer,
