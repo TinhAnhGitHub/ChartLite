@@ -235,8 +235,8 @@ class MatchaLightningModule(LightningModule):
             label_dicts = [post_processing(label_texts, TOKEN_MAP)]
             preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
 
-            print(f"{label_dicts=}")
-            print(f"{preds=}")
+            self.print(f"{label_dicts=}")
+            self.print(f"{preds=}")
 
             f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
             accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
