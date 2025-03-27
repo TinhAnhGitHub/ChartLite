@@ -4,8 +4,8 @@ config:
     monitor: val/overall_sim_avg
     save_top_k: 2
   dataset:
-    data_ratio: 0.1
-    parquet_dict: D:\Projects\School\Matcha\downsampled_cleaned_chartQa_plotQa_colored\data
+    data_ratio: 1
+    parquet_dict: ./downsampled_cleaned_chartQa_plotQa_colored/data
   early_stopping:
     mode: max
     monitor: val/overall_sim_avg
@@ -17,7 +17,7 @@ config:
     rsz_height: 512
     rsz_width: 512
   learning_rate_scheduler:
-    warmup_pct: 0.0
+    warmup_pct: 0.05
   metrics_tolerance:
     numeric_tolerance: 0.05
     string_tolerance: 2
@@ -34,24 +34,33 @@ config:
     patch_size: 16
   optimizer:
     grad_clip_value: 1.0
-    lr: 1e-4
-    weight_decay: 0.005
+    lr: 5e-5
+    weight_decay: 0.008
   outputs:
     model_dir: ./run_expr
   train_params:
-    grad_accumulation: 4
-    max_steps: 58624
-    num_workers: 4
-    save_every_n_train_steps: 500
+    adv_eps: 0.001
+    apply_every: 20
+    awp_adv_lr: 0.01
+    awp_enable: true
+    ema_cpu_offload: true
+    ema_decay: 0.9999
+    ema_enable: true
+    ema_every_n_steps: 1
+    ema_validate_original_weights: false
+    grad_accumulation: 8
+    max_steps: 146560
+    num_workers: 8
+    save_every_n_train_steps: 1000
     train_bs: 2
-    use_fp16: true
+    use_fp16_mixed: true
     val_bs: 2
     val_check_interval: 500
-  val_size: 200
+  val_size: null
   wandb:
     enabled: false
     project: mga-dev-a1
-    run_name: experiment-3
+    run_name: experiment-bug
 tokenizer: !!python/object:transformers.models.t5.tokenization_t5_fast.T5TokenizerFast
   _additional_special_tokens:
   - <extra_id_0>
@@ -29267,4 +29276,4 @@ tokenizer: !!python/object:transformers.models.t5.tokenization_t5_fast.T5Tokeniz
   return_token_type_ids: false
   truncation_side: right
   verbose: true
-  vocab_file: C:\Users\TinhAnh/.cache\huggingface\hub\models--google--matcha-base\snapshots\8a3e42420c3465a9e98441bdf84fe70b59d57cb8\spiece.model
+  vocab_file: /home/tinhanh/.cache/huggingface/hub/models--google--matcha-base/snapshots/8a3e42420c3465a9e98441bdf84fe70b59d57cb8/spiece.model

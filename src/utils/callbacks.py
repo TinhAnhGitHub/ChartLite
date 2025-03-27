@@ -16,12 +16,13 @@ import copy
 import os
 import threading
 from typing import Any, Dict, Iterable
-
-import lightning.pytorch as pl
 import torch
-from lightning.pytorch import Callback
-from lightning.pytorch.utilities.exceptions import MisconfigurationException
+from lightning.pytorch.callbacks import Callback
+import lightning.pytorch as pl
+
+import torch
 from lightning.pytorch.utilities.rank_zero import rank_zero_info
+from lightning.pytorch.utilities.exceptions import MisconfigurationException
 
 
 class EMA(Callback):
@@ -46,6 +47,7 @@ class EMA(Callback):
         every_n_steps: int = 1,
         cpu_offload: bool = False,
     ):
+        super().__init__()
         if not (0 <= decay <= 1):
             raise MisconfigurationException("EMA decay value must be between 0 and 1")
         self.decay = decay
@@ -357,3 +359,129 @@ class EMAOptimizer(torch.optim.Optimizer):
     def add_param_group(self, param_group):
         self.optimizer.add_param_group(param_group)
         self.rebuild_ema_params = True
+
+
+
+
+
+
+
+
+class AWPCallback(Callback):
+    """Callback for Adversarial Weight Perturbation (AWP) in PyTorch Lightning.
+
+    This callback implements AWP to improve model robustness by perturbing the model's weights
+    adversarially during training. It hooks into the training loop after the regular backward pass,
+    perturbs the weights, computes an adversarial loss, performs an additional backward pass,
+    and restores the original weights. The gradients from both the regular and adversarial losses
+    are accumulated for the optimizer step.
+
+    Args:
+        adv_param (str): The parameter name substring to perturb (e.g., "weight"). Default: "weight".
+        adv_lr (float): Learning rate for the adversarial perturbation. Default: 1.0.
+        adv_eps (float): Epsilon value for clamping the perturbation. Default: 0.0001.
+        apply_every (int or str): Frequency of AWP application. If an integer, applies every
+            `apply_every` batches. If "epoch", applies once per epoch (end of epoch). Default: 1.
+
+    Note:
+        The LightningModule must store the current batch in `training_step` as `self.current_batch = batch`
+        for this callback to access it. The model’s forward method should accept `flattened_patches`,
+        `attention_mask`, and `labels` as keyword arguments and return a tuple of (loss, other_outputs).
+
+    Example:
+        ```python
+        class MyModel(pl.LightningModule):
+            def training_step(self, batch, batch_idx):
+                self.current_batch = batch
+                loss, _ = self(
+                    flattened_patches=batch["flattened_patches"],
+                    attention_mask=batch["attention_mask"],
+                    labels=batch["labels"]
+                )
+                return loss
+
+        model = MyModel()
+        trainer = pl.Trainer(callbacks=[AWPCallback(adv_lr=0.01, adv_eps=0.001, apply_every=5)])
+        trainer.fit(model)
+        ```
+    """
+
+    def __init__(self, adv_param="weight", adv_lr=1.0, adv_eps=0.0001, apply_every=1):
+        super().__init__()
+        self.adv_param = adv_param
+        self.adv_lr = float(adv_lr)
+        self.adv_eps = float(adv_eps)
+        if isinstance(apply_every, int) and apply_every < 1:
+            raise ValueError("apply_every must be a positive integer or 'epoch'")
+        if not isinstance(apply_every, (int, str)) or (isinstance(apply_every, str) and apply_every != "epoch"):
+            raise ValueError("apply_every must be a positive integer or 'epoch'")
+        self.apply_every = apply_every
+        self.backup = {}
+        self.backup_eps = {}
+    
+    def on_after_backward(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule")->None:
+        if isinstance(self.apply_every, int) and trainer.global_step % self.apply_every != 0:
+            return
+        if self.adv_lr == 0:
+            return
+        
+        self._apply_awp(trainer, pl_module)
+    
+    def on_train_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
+        if self.apply_every == "epoch" and self.adv_lr != 0:
+            self._apply_awp(trainer, pl_module)
+    
+    def _apply_awp(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        self._save(pl_module)
+        self._attack_step(pl_module)
+        batch = pl_module.current_batch
+        adv_loss, _ = pl_module(
+            flattened_patches=batch["flattened_patches"],
+            attention_mask=batch["attention_mask"],
+            labels=batch["labels"]
+        )
+        adv_loss.backward()
+        self._restore(pl_module)
+    
+    def _attack_step(self, pl_module: "pl.LightningModule") -> None:
+        e = 1e-6
+        for name, param in pl_module.named_parameters():
+            if (
+                param.requires_grad
+                and param.grad is not None
+                and self.adv_param in name
+            ):
+                grad_norm = torch.norm(param.grad)
+                data_norm = torch.norm(param.data.detach())
+                if grad_norm != 0 and not torch.isnan(grad_norm):
+                    perturbation = self.adv_lr * param.grad / (grad_norm + e) * (data_norm + e)
+                    param.data.add_(perturbation)
+                    param.data = torch.min(
+                        torch.max(param.data, self.backup_eps[name][0]),
+                        self.backup_eps[name][1]
+                    )
+
+
+    def _save(self, pl_module: "pl.LightningModule") -> None:
+        for name, param in pl_module.named_parameters():
+            if (
+                param.requires_grad
+                and param.grad is not None
+                and self.adv_param in name
+            ):
+                self.backup[name] = param.data.clone()
+                grad_eps = self.adv_eps * param.abs().detach()
+                self.backup_eps[name] = (
+                    self.backup[name] - grad_eps,
+                    self.backup[name] + grad_eps
+                )
+    
+    def _restore(self, pl_module: "pl.LightningModule") -> None:
+        for name, param in pl_module.named_parameters():
+            if name in self.backup:
+                param.data.copy_(self.backup[name])
+        
+        self.backup.clear()
+        self.backup_eps.clear()
+    
+

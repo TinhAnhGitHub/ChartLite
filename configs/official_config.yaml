@@ -16,31 +16,34 @@ model:
 
 
 train_params:
-  train_bs: 1
-  # = 38GB VRAM = 16 * 2 GB VRAM
-  val_bs: 1
-  # = ??? cung cung 16 + 38 GB VRAM = 54 GB VRAM > 58GB VRAM
+  train_bs: 2
+  val_bs: 2
   max_steps: 146560 
   grad_accumulation: 8
   use_fp16_mixed: true
   num_workers: 8
-  val_check_interval: 1000
+  val_check_interval: 500  
   save_every_n_train_steps: 1000
 
-  ema_enable: false
+  ema_enable: true
   ema_decay: 0.9999
-  ema_validate_original_weights: False # set true to validate with original weights, should set to False
+  ema_validate_original_weights: false 
   ema_every_n_steps: 1
-  ema_cpu_offload: True # Set to True to store EMA weights on CPU to save GPU memory
+  ema_cpu_offload: true
+  
+
+  awp_enable: true
+  awp_adv_lr: 0.01
+  adv_eps: 0.001
+  apply_every: 20
   
 optimizer:
   lr: 5e-5
-  weight_decay: 0.01
+  weight_decay: 0.008
   grad_clip_value: 1.0
 
 learning_rate_scheduler:
-  warmup_pct: 0.0
-  num_cycles: 900
+  warmup_pct: 0.02
 
 
 
@@ -76,9 +79,9 @@ dataset:
 
 
 wandb:
-  enabled: false
+  enabled: true
   project: mga-dev-a1
-  run_name: experiment-bug
+  run_name: experiment-test-awp-ema2
 
 
 images:

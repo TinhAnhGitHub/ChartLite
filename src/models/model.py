@@ -49,24 +49,14 @@ class Matcha(nn.Module):
             ignore_index=-100,
             reduction="mean",
         )
-    def forward(
-            self,
-            flattened_patches,
-            attention_mask,
-            labels,
-    ):
-
+    def forward(self, flattened_patches, attention_mask, labels=None):
         outputs = self.backbone(
             flattened_patches=flattened_patches,
             attention_mask=attention_mask,
             labels=labels,
         )
-
-        loss_main = outputs.loss
-        
-        
-
-        return loss_main
+        loss = outputs.loss 
+        return loss, outputs 
     
 
 

@@ -6,16 +6,18 @@ from transformers import get_cosine_schedule_with_warmup, GenerationConfig
 from torch.optim import AdamW
 # from transformers.optimization import Adafactor
 
-from pytorch_lightning import LightningDataModule, LightningModule, Trainer, seed_everything
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, StochasticWeightAveraging, TQDMProgressBar
+from lightning.pytorch import LightningDataModule, LightningModule, Trainer, seed_everything
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, TQDMProgressBar
 
 import warnings
 import wandb
 import yaml
+import logging
+
 import argparse
 from  omegaconf import OmegaConf
 
-from utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter, EMA
+from utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter, EMA, AWPCallback
 from data import ChartCollator, ChartDataset
 from models import Matcha
 warnings.filterwarnings("ignore")
@@ -60,7 +62,7 @@ class ChartDataModule(LightningDataModule):
 
 
     def train_dataloader(self):
-        collate_fn = ChartCollator(tokenizer=self.tokenizer)
+        collate_fn = ChartCollator(self.tokenizer)
 
         train_sampler = DistributedSampler(
             self.train_dataset,
@@ -81,7 +83,7 @@ class ChartDataModule(LightningDataModule):
         )
 
     def val_dataloader(self):
-        collate_fn = ChartCollator(tokenizer=self.tokenizer)
+        collate_fn = ChartCollator(self.tokenizer)
         val_sampler = DistributedSampler(
             self.val_dataset,
             num_replicas=self.trainer.world_size,
@@ -134,10 +136,12 @@ class MatchaLightningModule(LightningModule):
         self.save_hyperparameters()
     
     def forward(self, flattened_patches, attention_mask, labels=None):
-        return self.model(flattened_patches, attention_mask, labels)
+        loss, outputs = self.model(flattened_patches, attention_mask, labels)
+        return loss, outputs
     
     def training_step(self, batch, batch_idx):
-        loss = self(
+        self.current_batch = batch
+        loss, _ = self(
             flattened_patches=batch["flattened_patches"],
             attention_mask=batch["attention_mask"],
             labels=batch["labels"]
@@ -155,6 +159,13 @@ class MatchaLightningModule(LightningModule):
             label_texts = batch["texts"][0]
             label_dicts = [post_processing(label_texts, TOKEN_MAP)]
             preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
+            self.print('*'*50)
+            self.print("During training step")
+            self.print(f"\n{label_dicts=}\n")
+            
+            self.print(f"\n{generated_texts=}\n")
+            self.print(f"\n{preds=}\n")
+            self.print('*'*50)
 
             f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
             accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
@@ -193,10 +204,9 @@ class MatchaLightningModule(LightningModule):
         
         if batch_idx % 50 == 0 and self.global_rank == 0:
             self.print(f"[Train Rank {self.global_rank}] Step {current_step} - Loss: {loss:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}, OverallSim: {overall_sim:.4f}")
-            
-            
+        
         return loss
-
+    
     def on_train_epoch_end(self):
         epoch_loss = self.train_metrics['loss'].avg
         self.log('train/epoch_loss', epoch_loss, on_epoch=True)
@@ -216,7 +226,7 @@ class MatchaLightningModule(LightningModule):
         
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
-            loss = self(
+            loss, _ = self(
                 flattened_patches=batch["flattened_patches"],
                 attention_mask=batch["attention_mask"],
                 labels=batch["labels"]
@@ -236,8 +246,12 @@ class MatchaLightningModule(LightningModule):
             label_dicts = [post_processing(label_texts, TOKEN_MAP)]
             preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
 
-            self.print(f"{label_dicts=}")
-            self.print(f"{preds=}")
+            self.print('*'*50)
+            self.print("During validation step")
+            self.print(f"\n{label_dicts=}\n")
+            self.print(f"\n{generated_texts=}\n")
+            self.print(f"\n{preds=}\n")
+            self.print('*'*50)
 
             f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
             accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
@@ -314,33 +328,6 @@ class MatchaLightningModule(LightningModule):
 
 def run_training(cfg):
     seed_everything(cfg.general.seed)
-
-    data_module = ChartDataModule(cfg)
-    data_module.setup()
-    tokenizer = data_module.tokenizer
-    cfg.val_size = data_module.val_size
-    model = MatchaLightningModule(cfg, tokenizer)
-
-    if cfg.wandb.enabled:
-        wandb.init(
-            project=cfg.wandb.project,
-            name=cfg.wandb.run_name,
-            config=OmegaConf.to_container(cfg, resolve=True),
-            entity='matcha_hehe'
-        )
-        
-
-
-    # os.environ["MASTER_ADDR"] = "11.84.11.29"
-    # os.environ["MASTER_PORT"] = "53154"
-    
-    # os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
-    
-    # vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
-    # os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
-    
-    
-
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     callbacks = [
         ModelCheckpoint(
@@ -370,14 +357,55 @@ def run_training(cfg):
     ]
 
     if cfg.train_params.ema_enable:
+        print("Use EMA")
         callbacks.append(
             EMA(
-                decay = cfg.train_params.ema_decay,
-                validate_original_weights= cfg.train_params.ema_validate_original_weights,
-                every_n_steps= cfg.train_params.ema_every_n_steps,
+                decay=cfg.train_params.ema_decay,
+                validate_original_weights=cfg.train_params.ema_validate_original_weights,
+                every_n_steps=cfg.train_params.ema_every_n_steps,
                 cpu_offload=cfg.train_params.ema_cpu_offload
             )
         )
+
+    if cfg.train_params.awp_enable:
+        print("Use AWP")
+        callbacks.append(
+            AWPCallback(
+                adv_param='weight',
+                adv_lr=float(cfg.train_params.awp_adv_lr),
+                adv_eps=float(cfg.train_params.adv_eps),
+                apply_every=int(cfg.train_params.apply_every)
+            )
+        )
+    print("Callbacks being passed to Trainer:", [type(cb).__name__ for cb in callbacks])
+    data_module = ChartDataModule(cfg)
+    data_module.setup()
+    tokenizer = data_module.tokenizer
+    cfg.val_size = data_module.val_size
+    model = MatchaLightningModule(cfg, tokenizer)
+
+    if cfg.wandb.enabled:
+        wandb.init(
+            project=cfg.wandb.project,
+            name=cfg.wandb.run_name,
+            config=OmegaConf.to_container(cfg, resolve=True),
+            entity='matcha_hehe'
+        )
+        
+
+
+    # os.environ["MASTER_ADDR"] = "11.84.11.29"
+    # os.environ["MASTER_PORT"] = "53154"
+    
+    # os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
+    
+    # vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
+    # os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
+    
+    
+
+    
+    
 
     trainer = Trainer(
         max_steps=cfg.train_params.max_steps,
