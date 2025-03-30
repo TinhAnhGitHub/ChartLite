@@ -19,36 +19,29 @@ class Matcha(nn.Module):
         backbone_config.text_config.pad_token_id = cfg.model.pad_token_id
         backbone_config.text_config.decoder_start_token_id = cfg.model.decoder_start_token_id
         backbone_config.text_config.bos_token_id = cfg.model.bos_token_id
+        backbone_config.dropout = cfg.model.get("dropout_rate", 0.1)  # default to 0.1 if not provided
+        backbone_config.attention_dropout = cfg.model.get("attention_dropout_rate", 0.1)
 
-        # Initialize Pix2Struct model
+
         self.backbone = Pix2StructForConditionalGeneration.from_pretrained(
             cfg['model']['backbone_path'],
             config=backbone_config,
         )
 
-       
-
-        # print("Freezing the encoder...")
-        # num_hidden_layers = self.backbone.config.vision_config.num_hidden_layers
-        #
-        # to_freeze_layer = int(cfg.model.frozen_percentage * num_hidden_layers)
-        # for layer in self.backbone.encoder.encoder.layer[to_freeze_layer:]:
-        #     for param in layer.parameters():
-        #         param.requires_grad = False
-        # for param in self.backbone.encoder.embeddings.parameters():
-        #     param.requires_grad = False
-
-
+        print("Freezing the encoder...")
+        num_hidden_layers = self.backbone.config.vision_config.num_hidden_layers
+        
+        to_freeze_layer = int(cfg.model.frozen_percentage * num_hidden_layers)
+        for layer in self.backbone.encoder.encoder.layer[:to_freeze_layer]:
+            for param in layer.parameters():
+                param.requires_grad = False
         
         print("Resizing model embeddings...")
         print(f"Tokenizer length = {cfg.model.len_tokenizer}")
         self.backbone.decoder.resize_token_embeddings(cfg.model.len_tokenizer)
         print("Finished resizing")
-
-        self.loss_fn = nn.CrossEntropyLoss(
-            ignore_index=-100,
-            reduction="mean",
-        )
+        print(f"Model embedding size: {self.backbone.decoder.config.vocab_size}")
+        print(f"Decoder embedding matrix shape: {self.backbone.decoder.get_input_embeddings().weight.shape}")
     def forward(self, flattened_patches, attention_mask, labels=None):
         outputs = self.backbone(
             flattened_patches=flattened_patches,
@@ -60,62 +53,3 @@ class Matcha(nn.Module):
     
 
 
-class AWP:
-    """Implements weighted adverserial perturbation
-    adapted from: https://www.kaggle.com/code/wht1996/feedback-nn-train/notebook
-    """
-
-    def __init__(self, model, optimizer, adv_param="weight", adv_lr=1, adv_eps=0.0001):
-        self.model = model
-        self.optimizer = optimizer
-        self.adv_param = adv_param
-        self.adv_lr = adv_lr
-        self.adv_eps = adv_eps
-        self.backup = {}
-        self.backup_eps = {}
-
-    def attack_backward(self, batch, accelerator):
-        if self.adv_lr == 0:
-            return
-        self._save()
-        self._attack_step()
-
-        adv_loss, _ = self.model(
-            flattened_patches=batch["flattened_patches"],
-            attention_mask=batch["attention_mask"],
-            labels=batch["labels"]
-        )
-        self.optimizer.zero_grad()
-        accelerator.backward(adv_loss)
-        self._restore()
-
-    def _attack_step(self):
-        e = 1e-6
-        for name, param in self.model.named_parameters():
-            if param.requires_grad and param.grad is not None and self.adv_param in name:
-                norm1 = torch.norm(param.grad)
-                norm2 = torch.norm(param.data.detach())
-                if norm1 != 0 and not torch.isnan(norm1):
-                    r_at = self.adv_lr * param.grad / (norm1 + e) * (norm2 + e)
-                    param.data.add_(r_at)
-                    param.data = torch.min(
-                        torch.max(param.data, self.backup_eps[name][0]), self.backup_eps[name][1]
-                    )
-
-    def _save(self):
-        for name, param in self.model.named_parameters():
-            if param.requires_grad and param.grad is not None and self.adv_param in name:
-                if name not in self.backup:
-                    self.backup[name] = param.data.clone()
-                    grad_eps = self.adv_eps * param.abs().detach()
-                    self.backup_eps[name] = (
-                        self.backup[name] - grad_eps,
-                        self.backup[name] + grad_eps,
-                    )
-
-    def _restore(self,):
-        for name, param in self.model.named_parameters():
-            if name in self.backup:
-                param.data = self.backup[name]
-        self.backup = {}
-        self.backup_eps = {}

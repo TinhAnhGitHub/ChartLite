@@ -7,7 +7,6 @@ from tokenizers import AddedToken
 from torch.utils.data import Dataset
 from transformers import Pix2StructProcessor
 import io
-import random
 from utils.constant import TOKEN_MAP
 from typing import List
 
@@ -49,7 +48,6 @@ def tokenize_dict(data: dict):
 def get_processor(config: dict) -> Pix2StructProcessor:
     """Load and configure the Pix2Struct processor."""
     processor_path = config['model']['backbone_path']
-    print(f"Loading processor from {processor_path}")
     
     processor = Pix2StructProcessor.from_pretrained(processor_path)
     processor.image_processor.is_vqa = False
@@ -58,9 +56,11 @@ def get_processor(config: dict) -> Pix2StructProcessor:
         "width": config['model']['patch_size']
     }
     
-    print("Adding new tokens...")
     new_tokens = sorted(tok for this_tok in TOKEN_MAP.values() for tok in this_tok)
     processor.tokenizer.add_tokens([AddedToken(tok, lstrip=False, rstrip=False) for tok in new_tokens])
+
+
+
     
     return processor
 
@@ -78,7 +78,6 @@ class ChartDataset(Dataset):
         if 'id' in self.parquet_df.columns and self.parquet_df['id'].is_unique:
             self.graph_ids = self.parquet_df['id'].tolist()
         else:
-            #print("No unique 'id' column found or duplicates detected; using global index")
             self.graph_ids = self.parquet_df.index.tolist()
         
         

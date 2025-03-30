@@ -1,9 +1,9 @@
 general:
-  fast_dev_run: False
-  seed: 42
+  fast_dev_run: false
+  seed: 3123123
 
 model:
-  backbone_path: google/matcha-base
+  backbone_path: google/matcha-chartqa
   max_length: 512
   max_patches: 1024
   patch_size: 16
@@ -12,40 +12,36 @@ model:
   decoder_start_token_id: ???
   bos_token_id: ???
   max_length_generation: 512
-  frozen_percentage: 0.4
-
+  frozen_percentage: 0.3
 
 train_params:
-  train_bs: 2
-  val_bs: 2
+  train_bs: 1
+  val_bs: 1
   max_steps: 146560 
-  grad_accumulation: 8
+  grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 8
-  val_check_interval: 500  
-  save_every_n_train_steps: 1000
-
+  val_check_interval: 50000
+  save_every_n_train_steps: 50000
   ema_enable: true
   ema_decay: 0.9999
   ema_validate_original_weights: false 
   ema_every_n_steps: 1
   ema_cpu_offload: true
   
-
-  awp_enable: true
-  awp_adv_lr: 0.01
+  awp_enable: false
+  awp_adv_lr: 0.005
   adv_eps: 0.001
-  apply_every: 20
+  apply_every: 2
   
 optimizer:
-  lr: 5e-5
-  weight_decay: 0.008
+  lr: 7e-5
+  weight_decay: 0.01
   grad_clip_value: 1.0
 
 learning_rate_scheduler:
-  warmup_pct: 0.02
-
-
+  warmup_pct: 0.05
+  num_cycles: 0.5
 
 
 metrics_tolerance:
@@ -62,7 +58,7 @@ best_ckpt:
 
 early_stopping:
   monitor: 'val/overall_sim_avg'
-  patience: 1000
+  patience: 50
   mode: 'max'
 
 
@@ -73,7 +69,7 @@ early_stopping:
 # 146 p = 2h20
 #9h10 chay dc 0.15 epoch  = 2200 step
 dataset:
-  parquet_dict: ./downsampled_cleaned_chartQa_plotQa_colored/data
+  parquet_dict: /media/tinhanhnguyen/Data/Projects/School/Matcha/downsampled_cleaned_chartQa_plotQa_colored/data
   data_ratio: 1
 
 
@@ -81,7 +77,7 @@ dataset:
 wandb:
   enabled: true
   project: mga-dev-a1
-  run_name: experiment-test-awp-ema2
+  run_name: experiment-test-awp-ema-test-n1
 
 
 images:
@@ -89,7 +85,7 @@ images:
   rsz_width: 512
 
 
-# vpn:
-#   nodes: 2
-#   devices : 2
-#   name: matcha_t
+vpn:
+  nodes: 2
+  devices : 2
+  name: matcha_t

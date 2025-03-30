@@ -68,21 +68,26 @@ class EMA(Callback):
             for optim in trainer.optimizers
             if not isinstance(optim, EMAOptimizer)
         ]
+        print("[EMA] on_fit_start: EMA optimizers have been initialized.")
 
     def on_validation_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
+            print("[EMA] on_validation_start: Swapping to EMA weights for validation.")
             self.swap_model_weights(trainer)
 
     def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
+            print("[EMA] on_validation_end: Swapping back to original weights after validation.")
             self.swap_model_weights(trainer)
 
     def on_test_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
+            print("[EMA] on_test_start: Swapping to EMA weights for testing.")
             self.swap_model_weights(trainer)
 
     def on_test_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
+            print("[EMA] on_test_end: Swapping back to original weights after testing.")
             self.swap_model_weights(trainer)
 
     def _should_validate_ema_weights(self, trainer: "pl.Trainer") -> bool:
@@ -94,6 +99,7 @@ class EMA(Callback):
     def swap_model_weights(self, trainer: "pl.Trainer", saving_ema_model: bool = False):
         for optimizer in trainer.optimizers:
             assert isinstance(optimizer, EMAOptimizer)
+            print(f"[EMA] swap_model_weights: Swapping weights. saving_ema_model={saving_ema_model}")
             optimizer.switch_main_parameter_weights(saving_ema_model)
 
     @contextlib.contextmanager
@@ -105,6 +111,7 @@ class EMA(Callback):
         try:
             yield
         finally:
+            print("[EMA] save_ema_model: swapping to EMA weights and saving")
             self.swap_model_weights(trainer, saving_ema_model=False)
 
     @contextlib.contextmanager
@@ -156,6 +163,7 @@ def ema_update(ema_model_tuple, current_model_tuple, decay):
         current_model_tuple,
         alpha=(1.0 - decay),
     )
+    print("[EMA] ema_update: EMA parameters updated")
 
 
 def run_ema_update_cpu(ema_model_tuple, current_model_tuple, decay, pre_sync_stream=None):
@@ -169,43 +177,7 @@ class EMAOptimizer(torch.optim.Optimizer):
     r"""
     EMAOptimizer is a wrapper for torch.optim.Optimizer that computes
     Exponential Moving Average of parameters registered in the optimizer.
-
-    EMA parameters are automatically updated after every step of the optimizer
-    with the following formula:
-
-        ema_weight = decay * ema_weight + (1 - decay) * training_weight
-
-    To access EMA parameters, use ``swap_ema_weights()`` context manager to
-    perform a temporary in-place swap of regular parameters with EMA
-    parameters.
-
-    Notes:
-        - EMAOptimizer is not compatible with APEX AMP O2.
-
-    Args:
-        optimizer (torch.optim.Optimizer): optimizer to wrap
-        device (torch.device): device for EMA parameters
-        decay (float): decay factor
-
-    Returns:
-        returns an instance of torch.optim.Optimizer that computes EMA of
-        parameters
-
-    Example:
-        model = Model().to(device)
-        opt = torch.optim.Adam(model.parameters())
-
-        opt = EMAOptimizer(opt, device, 0.9999)
-
-        for epoch in range(epochs):
-            training_loop(model, opt)
-
-            regular_eval_accuracy = evaluate(model)
-
-            with opt.swap_ema_weights():
-                ema_eval_accuracy = evaluate(model)
     """
-
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,
@@ -234,18 +206,15 @@ class EMAOptimizer(torch.optim.Optimizer):
 
     def step(self, closure=None, grad_scaler=None, **kwargs):
         self.join()
-
         if self.first_iteration:
             if any(p.is_cuda for p in self.all_parameters()):
                 self.stream = torch.cuda.Stream()
-
             self.first_iteration = False
 
         if self.rebuild_ema_params:
             opt_params = list(self.all_parameters())
-
             self.ema_params += tuple(
-                copy.deepcopy(param.data.detach()).to(self.device) for param in opt_params[len(self.ema_params) :]
+                copy.deepcopy(param.data.detach()).to(self.device) for param in opt_params[len(self.ema_params):]
             )
             self.rebuild_ema_params = False
 
@@ -255,6 +224,7 @@ class EMAOptimizer(torch.optim.Optimizer):
             loss = self.optimizer.step(closure)
 
         if self._should_update_at_step():
+            print(f"[EMAOptimizer] step: Updating EMA parameters at step {self.current_step}.")
             self.update()
         self.current_step += 1
         return loss
@@ -266,15 +236,12 @@ class EMAOptimizer(torch.optim.Optimizer):
     def update(self):
         if self.stream is not None:
             self.stream.wait_stream(torch.cuda.current_stream())
-
         with torch.cuda.stream(self.stream):
             current_model_state = tuple(
                 param.data.to(self.device, non_blocking=True) for param in self.all_parameters()
             )
-
             if self.device.type == 'cuda':
                 ema_update(self.ema_params, current_model_state, self.decay)
-
         if self.device.type == 'cpu':
             self.thread = threading.Thread(
                 target=run_ema_update_cpu,
@@ -296,21 +263,12 @@ class EMAOptimizer(torch.optim.Optimizer):
     def switch_main_parameter_weights(self, saving_ema_model: bool = False):
         self.join()
         self.in_saving_ema_model_context = saving_ema_model
+        print(f"[EMAOptimizer] switch_main_parameter_weights: Swapping weights. saving_ema_model={saving_ema_model}")
         for param, ema_param in zip(self.all_parameters(), self.ema_params):
             self.swap_tensors(param.data, ema_param)
 
     @contextlib.contextmanager
     def swap_ema_weights(self, enabled: bool = True):
-        r"""
-        A context manager to in-place swap regular parameters with EMA
-        parameters.
-        It swaps back to the original regular parameters on context manager
-        exit.
-
-        Args:
-            enabled (bool): whether the swap should be performed
-        """
-
         if enabled:
             self.switch_main_parameter_weights()
         try:
@@ -325,17 +283,13 @@ class EMAOptimizer(torch.optim.Optimizer):
     def join(self):
         if self.stream is not None:
             self.stream.synchronize()
-
         if self.thread is not None:
             self.thread.join()
 
     def state_dict(self):
         self.join()
-
         if self.save_original_optimizer_state:
             return self.optimizer.state_dict()
-
-        # if we are in the context of saving an EMA model, the EMA weights are in the modules' actual weights
         ema_params = self.ema_params if not self.in_saving_ema_model_context else list(self.all_parameters())
         state_dict = {
             'opt': self.optimizer.state_dict(),
@@ -348,7 +302,6 @@ class EMAOptimizer(torch.optim.Optimizer):
 
     def load_state_dict(self, state_dict):
         self.join()
-
         self.optimizer.load_state_dict(state_dict['opt'])
         self.ema_params = tuple(param.to(self.device) for param in copy.deepcopy(state_dict['ema']))
         self.current_step = state_dict['current_step']
@@ -361,49 +314,13 @@ class EMAOptimizer(torch.optim.Optimizer):
         self.rebuild_ema_params = True
 
 
-
-
-
-
-
-
 class AWPCallback(Callback):
     """Callback for Adversarial Weight Perturbation (AWP) in PyTorch Lightning.
 
     This callback implements AWP to improve model robustness by perturbing the model's weights
     adversarially during training. It hooks into the training loop after the regular backward pass,
     perturbs the weights, computes an adversarial loss, performs an additional backward pass,
-    and restores the original weights. The gradients from both the regular and adversarial losses
-    are accumulated for the optimizer step.
-
-    Args:
-        adv_param (str): The parameter name substring to perturb (e.g., "weight"). Default: "weight".
-        adv_lr (float): Learning rate for the adversarial perturbation. Default: 1.0.
-        adv_eps (float): Epsilon value for clamping the perturbation. Default: 0.0001.
-        apply_every (int or str): Frequency of AWP application. If an integer, applies every
-            `apply_every` batches. If "epoch", applies once per epoch (end of epoch). Default: 1.
-
-    Note:
-        The LightningModule must store the current batch in `training_step` as `self.current_batch = batch`
-        for this callback to access it. The model’s forward method should accept `flattened_patches`,
-        `attention_mask`, and `labels` as keyword arguments and return a tuple of (loss, other_outputs).
-
-    Example:
-        ```python
-        class MyModel(pl.LightningModule):
-            def training_step(self, batch, batch_idx):
-                self.current_batch = batch
-                loss, _ = self(
-                    flattened_patches=batch["flattened_patches"],
-                    attention_mask=batch["attention_mask"],
-                    labels=batch["labels"]
-                )
-                return loss
-
-        model = MyModel()
-        trainer = pl.Trainer(callbacks=[AWPCallback(adv_lr=0.01, adv_eps=0.001, apply_every=5)])
-        trainer.fit(model)
-        ```
+    and restores the original weights.
     """
 
     def __init__(self, adv_param="weight", adv_lr=1.0, adv_eps=0.0001, apply_every=1):
@@ -418,23 +335,25 @@ class AWPCallback(Callback):
         self.apply_every = apply_every
         self.backup = {}
         self.backup_eps = {}
-    
-    def on_after_backward(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule")->None:
-        if isinstance(self.apply_every, int) and trainer.global_step % self.apply_every != 0:
+
+    def on_after_backward(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        if isinstance(self.apply_every, int) and trainer.global_step == 0 and trainer.global_step % self.apply_every != 0:
             return
         if self.adv_lr == 0:
             return
-        
+        print(f"[AWP] on_after_backward: Applying AWP at global step {trainer.global_step}.")
         self._apply_awp(trainer, pl_module)
-    
+
     def on_train_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
         if self.apply_every == "epoch" and self.adv_lr != 0:
+            print("[AWP] on_train_epoch_end: Applying AWP at epoch end.")
             self._apply_awp(trainer, pl_module)
-    
+
     def _apply_awp(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         self._save(pl_module)
         self._attack_step(pl_module)
         batch = pl_module.current_batch
+        print("[AWP] _apply_awp: Computing adversarial loss.")
         adv_loss, _ = pl_module(
             flattened_patches=batch["flattened_patches"],
             attention_mask=batch["attention_mask"],
@@ -442,15 +361,11 @@ class AWPCallback(Callback):
         )
         adv_loss.backward()
         self._restore(pl_module)
-    
+
     def _attack_step(self, pl_module: "pl.LightningModule") -> None:
         e = 1e-6
         for name, param in pl_module.named_parameters():
-            if (
-                param.requires_grad
-                and param.grad is not None
-                and self.adv_param in name
-            ):
+            if param.requires_grad and param.grad is not None and self.adv_param in name:
                 grad_norm = torch.norm(param.grad)
                 data_norm = torch.norm(param.data.detach())
                 if grad_norm != 0 and not torch.isnan(grad_norm):
@@ -460,28 +375,23 @@ class AWPCallback(Callback):
                         torch.max(param.data, self.backup_eps[name][0]),
                         self.backup_eps[name][1]
                     )
-
+        print("[AWP] _attack_step: Model weights have been perturbed adversarially.")
 
     def _save(self, pl_module: "pl.LightningModule") -> None:
         for name, param in pl_module.named_parameters():
-            if (
-                param.requires_grad
-                and param.grad is not None
-                and self.adv_param in name
-            ):
+            if param.requires_grad and param.grad is not None and self.adv_param in name:
                 self.backup[name] = param.data.clone()
                 grad_eps = self.adv_eps * param.abs().detach()
                 self.backup_eps[name] = (
                     self.backup[name] - grad_eps,
                     self.backup[name] + grad_eps
                 )
-    
+        print("[AWP] _save: Original model weights have been backed up.")
+
     def _restore(self, pl_module: "pl.LightningModule") -> None:
         for name, param in pl_module.named_parameters():
             if name in self.backup:
                 param.data.copy_(self.backup[name])
-        
         self.backup.clear()
         self.backup_eps.clear()
-    
-
+        print("[AWP] _restore: Original model weights have been restored.")

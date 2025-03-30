@@ -8,11 +8,11 @@ from torch.optim import AdamW
 
 from lightning.pytorch import LightningDataModule, LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, TQDMProgressBar
+from lightning.pytorch.loggers import TensorBoardLogger
 
 import warnings
 import wandb
 import yaml
-import logging
 
 import argparse
 from  omegaconf import OmegaConf
@@ -22,7 +22,7 @@ from data import ChartCollator, ChartDataset
 from models import Matcha
 warnings.filterwarnings("ignore")
 BOS_TOKEN = TOKEN_MAP["bos_token"]
-torch.set_float32_matmul_precision('medium')
+# torch.set_float32_matmul_precision('medium')
 
 class ChartDataModule(LightningDataModule):
     def __init__(self, config):
@@ -108,13 +108,22 @@ class MatchaLightningModule(LightningModule):
         self.config = config
         self.tokenizer = tokenizer
         self.model = Matcha(config)
-        
+
+        eos_token_id = tokenizer.eos_token_id
+        pad_token_id = tokenizer.pad_token_id
+        if eos_token_id is None or pad_token_id is None:
+            raise ValueError("EOS or PAD token ID is None. Ensure tokenizer has them defined.")
+
         
         self.generation_config = GenerationConfig(
             max_new_tokens=config.model.max_length_generation,
+            num_beams=4,
             do_sample=False,
             top_k=1,
-            use_cache=True
+            use_cache=True,
+            early_stopping=True,
+            eos_token_id=eos_token_id, 
+            pad_token_id=pad_token_id
         )
 
 
@@ -130,7 +139,8 @@ class MatchaLightningModule(LightningModule):
             "accuracy": AverageMeter(),
             "overall_sim": AverageMeter()
         }
-
+        self.validation_outputs = []
+        
         self.use_wandb = config.wandb.enabled
         self.eval_json = JSONParseEvaluator()
         self.save_hyperparameters()
@@ -148,62 +158,20 @@ class MatchaLightningModule(LightningModule):
         )
 
         self.train_metrics['loss'].update(loss,1)
-        with torch.no_grad():
-            generated_ids = self.model.backbone.generate(
-                flattened_patches=batch["flattened_patches"],
-                attention_mask=batch["attention_mask"],
-                generation_config=self.generation_config,
-            )
-            generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-
-            label_texts = batch["texts"][0]
-            label_dicts = [post_processing(label_texts, TOKEN_MAP)]
-            preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
-            self.print('*'*50)
-            self.print("During training step")
-            self.print(f"\n{label_dicts=}\n")
-            
-            self.print(f"\n{generated_texts=}\n")
-            self.print(f"\n{preds=}\n")
-            self.print('*'*50)
-
-            f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
-            accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
-
-            overall_sim = self.eval_json.compare_json_list(
-                label_dicts, preds,
-                numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
-                string_tolerance=self.config.metrics_tolerance.string_tolerance
-            )
-            self.train_metrics['f1'].update(f1_score, 1)
-            self.train_metrics['accuracy'].update(accuracy, 1)
-            self.train_metrics['overall_sim'].update(overall_sim, 1)
         
         current_step = self.global_step
-        loss_avg = self.train_metrics["loss"].avg
-        f1_avg = self.train_metrics["f1"].avg
-        accuracy_avg = self.train_metrics["accuracy"].avg
-        overall_sim_avg = self.train_metrics["overall_sim"].avg
 
         self.log('train/loss_step', loss, on_step=True, prog_bar=True)
-        self.log('train/loss_avg', loss_avg, on_step=True, prog_bar=True)
-        self.log('train/f1_avg', f1_avg, on_step=True)
-        self.log('train/accuracy_avg', accuracy_avg, on_step=True)
-        self.log('train/overall_sim_avg', overall_sim_avg, on_step=True)
         self.log('train/learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=True)
 
         if self.use_wandb:
             wandb.log({
                 'train/loss_step': loss.item(),
-                'train/loss_avg': loss_avg,
-                'train/f1_avg': f1_avg,
-                'train/accuracy_avg': accuracy_avg,
-                'train/overall_sim_avg': overall_sim_avg,
                 'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr'],
             }, step=current_step)
         
         if batch_idx % 50 == 0 and self.global_rank == 0:
-            self.print(f"[Train Rank {self.global_rank}] Step {current_step} - Loss: {loss:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}, OverallSim: {overall_sim:.4f}")
+            self.print(f"[Train Rank {self.global_rank}] Step {current_step} - Loss: {loss:.4f}")
         
         return loss
     
@@ -217,8 +185,10 @@ class MatchaLightningModule(LightningModule):
                 'epoch': self.current_epoch
             })
 
+        
         if self.global_rank == 0:
-            self.print(f"[Train End Rank {self.global_rank}] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f}")
+            current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+            self.print(f"[Train End Rank {self.global_rank}] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f} - Learning rate: {current_lr:.6f}")
         self.train_metrics['loss'].reset() 
         self.train_metrics['f1'].reset()
         self.train_metrics['accuracy'].reset()
@@ -246,12 +216,15 @@ class MatchaLightningModule(LightningModule):
             label_dicts = [post_processing(label_texts, TOKEN_MAP)]
             preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
 
-            self.print('*'*50)
-            self.print("During validation step")
-            self.print(f"\n{label_dicts=}\n")
-            self.print(f"\n{generated_texts=}\n")
-            self.print(f"\n{preds=}\n")
-            self.print('*'*50)
+            output_str = (
+                f"{'*'*50}\n"
+                f"During validation step {batch_idx}\n"
+                f"Label dict: {label_dicts}\n"
+                f"Generated text: {generated_texts}\n"
+                f"Predictions: {preds}\n"
+                f"{'*'*50}\n"
+            )
+            self.validation_outputs.append(output_str)
 
             f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
             accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
@@ -275,7 +248,9 @@ class MatchaLightningModule(LightningModule):
     def on_validation_epoch_start(self):
         for metric in self.val_metrics.values():
             metric.reset()
-    
+        self.validation_outputs = []
+
+
     def on_validation_epoch_end(self):
         current_step = self.global_step
         val_loss_avg = self.val_metrics["loss"].avg
@@ -299,6 +274,18 @@ class MatchaLightningModule(LightningModule):
         if self.global_rank == 0:
             self.print(f"[Val End Rank {self.global_rank}] Step {current_step} - Loss: {val_loss_avg:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}")
 
+            log_file_path = os.path.join(os.getcwd(), f"validation_step_{current_step}_outputs.txt")
+            try:
+                with open(log_file_path, 'w', encoding='utf-8') as f:
+                    f.write(f"--- Validation outputs for Step {current_step} ---\n")
+                    f.write(f"Avg Loss: {val_loss_avg:.4f}, Avg F1: {f1_avg:.4f}, Avg Acc: {accuracy_avg:.4f}, Avg Sim: {overall_sim_avg:.4f}\n")
+                    f.write("="*50 + "\n\n")
+                    for output in self.validation_outputs:
+                        f.write(output + "\n")
+                self.print(f"Validation outputs written to {log_file_path}")
+            except Exception as e:
+                self.print(f"Error writing validation outputs to file: {e}")
+                    
 
     def configure_optimizers(self):
         optimizer = AdamW(
@@ -327,6 +314,17 @@ class MatchaLightningModule(LightningModule):
 
 
 def run_training(cfg):
+
+    # os.environ["MASTER_ADDR"] = "11.84.11.29"
+    # os.environ["MASTER_PORT"] = "53154"
+    # os.environ['NODE_RANK'] = "0"
+    # os.environ['LOCAL_RANK'] = "0"
+    # os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
+    
+    # vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
+    # os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
+
+
     seed_everything(cfg.general.seed)
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     callbacks = [
@@ -352,7 +350,7 @@ def run_training(cfg):
         ),
         LearningRateMonitor(logging_interval='step'),
         Timer(),
-        TQDMProgressBar(refresh_rate=20),
+        TQDMProgressBar(refresh_rate=cfg.train_params.train_bs * cfg.train_params.grad_accumulation),
         
     ]
 
@@ -384,6 +382,7 @@ def run_training(cfg):
     cfg.val_size = data_module.val_size
     model = MatchaLightningModule(cfg, tokenizer)
 
+
     if cfg.wandb.enabled:
         wandb.init(
             project=cfg.wandb.project,
@@ -391,22 +390,7 @@ def run_training(cfg):
             config=OmegaConf.to_container(cfg, resolve=True),
             entity='matcha_hehe'
         )
-        
-
-
-    # os.environ["MASTER_ADDR"] = "11.84.11.29"
-    # os.environ["MASTER_PORT"] = "53154"
     
-    # os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
-    
-    # vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
-    # os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
-    
-    
-
-    
-    
-
     trainer = Trainer(
         max_steps=cfg.train_params.max_steps,
         max_epochs=None,
@@ -414,9 +398,10 @@ def run_training(cfg):
         devices=torch.cuda.device_count(),
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
         callbacks=callbacks,
+        # num_nodes=cfg.vpn.nodes,
         gradient_clip_val=cfg.optimizer.grad_clip_value,
         accumulate_grad_batches=cfg.train_params.grad_accumulation,
-        precision= '16-mixed' if cfg.train_params.use_fp16_mixed else 32,
+        precision= '16' if cfg.train_params.use_fp16_mixed else '32',
         check_val_every_n_epoch=None,
         val_check_interval=cfg.train_params.val_check_interval,
         fast_dev_run=cfg.general.fast_dev_run,
@@ -440,4 +425,3 @@ if __name__ == "__main__":
     config = OmegaConf.create(yaml_config)
 
     run_training(cfg=config)
-

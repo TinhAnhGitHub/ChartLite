@@ -5,9 +5,7 @@ __pycache__/
 
 # C extensions
 *.so
-
 downsampled_cleaned_chartQa_plotQa_colored/
-
 run_expr/
 wandb/
 lightning_logs/
