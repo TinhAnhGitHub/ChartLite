@@ -367,7 +367,7 @@ class JSONParseEvaluator:
         return node
 
 
-    def cal_acc(self, pred: Dict[Any, Any], answer: Dict[Any, Any]) -> float:
+    def _cal_acc_single_prediction(self, pred: Dict[Any, Any], answer: Dict[Any, Any]) -> float:
         """
         Calculate the normalized Tree Edit Distance (nTED) based accuracy between a predicted and a ground truth JSON.
 
@@ -412,6 +412,15 @@ class JSONParseEvaluator:
         normalized_distance = ted_pred / ted_empty if ted_empty != 0 else 0
         accuracy = max(1 - normalized_distance, 0)
         return accuracy
+
+    def cal_acc(self, preds: List[Dict[str, Any]], answers: List[Dict[str, Any]]):
+        accs = []
+        for pred, answer in zip(preds, answers):
+            accs.append(
+                self._cal_acc_single_prediction(pred, answer)
+            )            
+
+        return float(sum(accs)/len(accs))
 
 
 if __name__ == "__main__":

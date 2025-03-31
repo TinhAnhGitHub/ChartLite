@@ -1,9 +1,9 @@
 general:
   fast_dev_run: false
-  seed: 3123123
+  seed: 4231312312312312313123123
 
 model:
-  backbone_path: google/matcha-chartqa
+  backbone_path: google/matcha-base
   max_length: 512
   max_patches: 1024
   patch_size: 16
@@ -14,15 +14,16 @@ model:
   max_length_generation: 512
   frozen_percentage: 0.3
 
+
 train_params:
   train_bs: 1
   val_bs: 1
-  max_steps: 146560 
+  max_steps: 146560
   grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 8
-  val_check_interval: 50000
-  save_every_n_train_steps: 50000
+  val_check_interval: 4580
+  save_every_n_train_steps: 4580
   ema_enable: true
   ema_decay: 0.9999
   ema_validate_original_weights: false 
@@ -41,7 +42,7 @@ optimizer:
 
 learning_rate_scheduler:
   warmup_pct: 0.05
-  num_cycles: 0.5
+  num_cycles: 10
 
 
 metrics_tolerance:
@@ -49,7 +50,7 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: ./run_expr
+  model_dir: /media/tinhanhnguyen/Data/Projects/School/Matcha/run_expr/experiment-test-awp-ema-test-n3
 
 best_ckpt:
   monitor: 'val/overall_sim_avg'
@@ -75,9 +76,9 @@ dataset:
 
 
 wandb:
-  enabled: true
+  enabled: false
   project: mga-dev-a1
-  run_name: experiment-test-awp-ema-test-n1
+  run_name: experiment-test-awp-ema-test-n3
 
 
 images:

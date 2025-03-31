@@ -4,11 +4,9 @@ import torch
 from torch.utils.data import DataLoader, DistributedSampler
 from transformers import get_cosine_schedule_with_warmup, GenerationConfig
 from torch.optim import AdamW
-# from transformers.optimization import Adafactor
 
 from lightning.pytorch import LightningDataModule, LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, TQDMProgressBar
-from lightning.pytorch.loggers import TensorBoardLogger
 
 import warnings
 import wandb
@@ -22,7 +20,7 @@ from data import ChartCollator, ChartDataset
 from models import Matcha
 warnings.filterwarnings("ignore")
 BOS_TOKEN = TOKEN_MAP["bos_token"]
-# torch.set_float32_matmul_precision('medium')
+torch.set_float32_matmul_precision('medium')
 
 class ChartDataModule(LightningDataModule):
     def __init__(self, config):
@@ -121,10 +119,15 @@ class MatchaLightningModule(LightningModule):
             do_sample=False,
             top_k=1,
             use_cache=True,
-            early_stopping=True,
-            eos_token_id=eos_token_id, 
-            pad_token_id=pad_token_id
+            early_stopping=True
         )
+
+        # self.generation_config = GenerationConfig(
+        #     max_new_tokens=config.model.max_length_generation,
+        #     do_sample=False,
+        #     top_k=1,
+        #     use_cache=True
+        # )
 
 
         self.train_metrics = {
@@ -162,7 +165,7 @@ class MatchaLightningModule(LightningModule):
         current_step = self.global_step
 
         self.log('train/loss_step', loss, on_step=True, prog_bar=True)
-        self.log('train/learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=True)
+        self.log('train/learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=True, prog_bar=True)
 
         if self.use_wandb:
             wandb.log({
@@ -170,8 +173,7 @@ class MatchaLightningModule(LightningModule):
                 'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr'],
             }, step=current_step)
         
-        if batch_idx % 50 == 0 and self.global_rank == 0:
-            self.print(f"[Train Rank {self.global_rank}] Step {current_step} - Loss: {loss:.4f}")
+        
         
         return loss
     
@@ -210,12 +212,14 @@ class MatchaLightningModule(LightningModule):
                 generation_config=self.generation_config,
             )
 
-            generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-            label_texts = batch["texts"][0]
+            generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+            label_texts = batch["texts"]
 
-            label_dicts = [post_processing(label_texts, TOKEN_MAP)]
-            preds = [(batch['id'], post_processing(generated_texts, TOKEN_MAP))]
+            
 
+            label_dicts = [post_processing(label_text, TOKEN_MAP) for label_text in label_texts]
+            preds = [(batch['id'], post_processing(generated_text, TOKEN_MAP)) for generated_text in generated_texts]
+        
             output_str = (
                 f"{'*'*50}\n"
                 f"During validation step {batch_idx}\n"
@@ -227,7 +231,7 @@ class MatchaLightningModule(LightningModule):
             self.validation_outputs.append(output_str)
 
             f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
-            accuracy = self.eval_json.cal_acc(pred=preds[0], answer=label_dicts[0])
+            accuracy = self.eval_json.cal_acc(preds=preds, answers=label_dicts)
 
             overall_sim = self.eval_json.compare_json_list(
                 label_dicts, preds,
@@ -274,9 +278,9 @@ class MatchaLightningModule(LightningModule):
         if self.global_rank == 0:
             self.print(f"[Val End Rank {self.global_rank}] Step {current_step} - Loss: {val_loss_avg:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}")
 
-            log_file_path = os.path.join(os.getcwd(), f"validation_step_{current_step}_outputs.txt")
+            log_file_path = os.path.join(self.config.outputs.model_dir,f"validation_step_{current_step}_outputs.txt")
             try:
-                with open(log_file_path, 'w', encoding='utf-8') as f:
+                with open(log_file_path, 'a', encoding='utf-8') as f:
                     f.write(f"--- Validation outputs for Step {current_step} ---\n")
                     f.write(f"Avg Loss: {val_loss_avg:.4f}, Avg F1: {f1_avg:.4f}, Avg Acc: {accuracy_avg:.4f}, Avg Sim: {overall_sim_avg:.4f}\n")
                     f.write("="*50 + "\n\n")
@@ -327,12 +331,14 @@ def run_training(cfg):
 
     seed_everything(cfg.general.seed)
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir, exist_ok=True)
     callbacks = [
         ModelCheckpoint(
             monitor=cfg.best_ckpt.monitor,
             mode=cfg.best_ckpt.mode,
             save_top_k=cfg.best_ckpt.save_top_k,
-            filename="best-checkpoint-{step}-{val_f1_avg:.4f}",
+            filename="best-checkpoint-{step}",
             dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
         ),
         ModelCheckpoint(

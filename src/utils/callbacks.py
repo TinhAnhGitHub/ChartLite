@@ -49,14 +49,16 @@ class EMA(Callback):
     ):
         super().__init__()
         if not (0 <= decay <= 1):
-            raise MisconfigurationException("EMA decay value must be between 0 and 1")
+            raise MisconfigurationException(
+                "EMA decay value must be between 0 and 1")
         self.decay = decay
         self.validate_original_weights = validate_original_weights
         self.every_n_steps = every_n_steps
         self.cpu_offload = cpu_offload
 
     def on_fit_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-        device = pl_module.device if not self.cpu_offload else torch.device('cpu')
+        device = pl_module.device if not self.cpu_offload else torch.device(
+            'cpu')
         trainer.optimizers = [
             EMAOptimizer(
                 optim,
@@ -77,7 +79,8 @@ class EMA(Callback):
 
     def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
-            print("[EMA] on_validation_end: Swapping back to original weights after validation.")
+            print(
+                "[EMA] on_validation_end: Swapping back to original weights after validation.")
             self.swap_model_weights(trainer)
 
     def on_test_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
@@ -99,7 +102,8 @@ class EMA(Callback):
     def swap_model_weights(self, trainer: "pl.Trainer", saving_ema_model: bool = False):
         for optimizer in trainer.optimizers:
             assert isinstance(optimizer, EMAOptimizer)
-            print(f"[EMA] swap_model_weights: Swapping weights. saving_ema_model={saving_ema_model}")
+            print(
+                f"[EMA] swap_model_weights: Swapping weights. saving_ema_model={saving_ema_model}")
             optimizer.switch_main_parameter_weights(saving_ema_model)
 
     @contextlib.contextmanager
@@ -143,7 +147,8 @@ class EMA(Callback):
                 return
             ema_path = ckpt_path.replace(ext, f'-EMA{ext}')
             if os.path.exists(ema_path):
-                ema_state_dict = torch.load(ema_path, map_location=torch.device('cpu'), weights_only=False)
+                ema_state_dict = torch.load(
+                    ema_path, map_location=torch.device('cpu'), weights_only=False)
 
                 checkpoint['optimizer_states'] = ema_state_dict['optimizer_states']
                 del ema_state_dict
@@ -163,7 +168,6 @@ def ema_update(ema_model_tuple, current_model_tuple, decay):
         current_model_tuple,
         alpha=(1.0 - decay),
     )
-    print("[EMA] ema_update: EMA parameters updated")
 
 
 def run_ema_update_cpu(ema_model_tuple, current_model_tuple, decay, pre_sync_stream=None):
@@ -178,6 +182,7 @@ class EMAOptimizer(torch.optim.Optimizer):
     EMAOptimizer is a wrapper for torch.optim.Optimizer that computes
     Exponential Moving Average of parameters registered in the optimizer.
     """
+
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,
@@ -219,12 +224,12 @@ class EMAOptimizer(torch.optim.Optimizer):
             self.rebuild_ema_params = False
 
         if getattr(self.optimizer, "_step_supports_amp_scaling", False) and grad_scaler is not None:
-            loss = self.optimizer.step(closure=closure, grad_scaler=grad_scaler)
+            loss = self.optimizer.step(
+                closure=closure, grad_scaler=grad_scaler)
         else:
             loss = self.optimizer.step(closure)
 
         if self._should_update_at_step():
-            print(f"[EMAOptimizer] step: Updating EMA parameters at step {self.current_step}.")
             self.update()
         self.current_step += 1
         return loss
@@ -263,7 +268,8 @@ class EMAOptimizer(torch.optim.Optimizer):
     def switch_main_parameter_weights(self, saving_ema_model: bool = False):
         self.join()
         self.in_saving_ema_model_context = saving_ema_model
-        print(f"[EMAOptimizer] switch_main_parameter_weights: Swapping weights. saving_ema_model={saving_ema_model}")
+        print(
+            f"[EMAOptimizer] switch_main_parameter_weights: Swapping weights. saving_ema_model={saving_ema_model}")
         for param, ema_param in zip(self.all_parameters(), self.ema_params):
             self.swap_tensors(param.data, ema_param)
 
@@ -290,7 +296,8 @@ class EMAOptimizer(torch.optim.Optimizer):
         self.join()
         if self.save_original_optimizer_state:
             return self.optimizer.state_dict()
-        ema_params = self.ema_params if not self.in_saving_ema_model_context else list(self.all_parameters())
+        ema_params = self.ema_params if not self.in_saving_ema_model_context else list(
+            self.all_parameters())
         state_dict = {
             'opt': self.optimizer.state_dict(),
             'ema': ema_params,
@@ -303,7 +310,8 @@ class EMAOptimizer(torch.optim.Optimizer):
     def load_state_dict(self, state_dict):
         self.join()
         self.optimizer.load_state_dict(state_dict['opt'])
-        self.ema_params = tuple(param.to(self.device) for param in copy.deepcopy(state_dict['ema']))
+        self.ema_params = tuple(param.to(self.device)
+                                for param in copy.deepcopy(state_dict['ema']))
         self.current_step = state_dict['current_step']
         self.decay = state_dict['decay']
         self.every_n_steps = state_dict['every_n_steps']
@@ -329,9 +337,11 @@ class AWPCallback(Callback):
         self.adv_lr = float(adv_lr)
         self.adv_eps = float(adv_eps)
         if isinstance(apply_every, int) and apply_every < 1:
-            raise ValueError("apply_every must be a positive integer or 'epoch'")
+            raise ValueError(
+                "apply_every must be a positive integer or 'epoch'")
         if not isinstance(apply_every, (int, str)) or (isinstance(apply_every, str) and apply_every != "epoch"):
-            raise ValueError("apply_every must be a positive integer or 'epoch'")
+            raise ValueError(
+                "apply_every must be a positive integer or 'epoch'")
         self.apply_every = apply_every
         self.backup = {}
         self.backup_eps = {}
@@ -341,7 +351,8 @@ class AWPCallback(Callback):
             return
         if self.adv_lr == 0:
             return
-        print(f"[AWP] on_after_backward: Applying AWP at global step {trainer.global_step}.")
+        print(
+            f"[AWP] on_after_backward: Applying AWP at global step {trainer.global_step}.")
         self._apply_awp(trainer, pl_module)
 
     def on_train_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule"):
@@ -369,7 +380,8 @@ class AWPCallback(Callback):
                 grad_norm = torch.norm(param.grad)
                 data_norm = torch.norm(param.data.detach())
                 if grad_norm != 0 and not torch.isnan(grad_norm):
-                    perturbation = self.adv_lr * param.grad / (grad_norm + e) * (data_norm + e)
+                    perturbation = self.adv_lr * param.grad / \
+                        (grad_norm + e) * (data_norm + e)
                     param.data.add_(perturbation)
                     param.data = torch.min(
                         torch.max(param.data, self.backup_eps[name][0]),
