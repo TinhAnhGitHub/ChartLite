@@ -22,8 +22,8 @@ train_params:
   grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 8
-  val_check_interval: 4580
-  save_every_n_train_steps: 4580
+  val_check_interval: 70000
+  save_every_n_train_steps: 70000
   ema_enable: true
   ema_decay: 0.9999
   ema_validate_original_weights: false 

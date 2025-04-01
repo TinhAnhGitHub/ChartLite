@@ -317,7 +317,7 @@ class MatchaLightningModule(LightningModule):
         }
 
 
-def run_training(cfg):
+def run_training(cfg, ckpt_path=None):
 
     # os.environ["MASTER_ADDR"] = "11.84.11.29"
     # os.environ["MASTER_PORT"] = "53154"
@@ -417,12 +417,13 @@ def run_training(cfg):
         
     )
 
-    trainer.fit(model, datamodule=data_module)
+    trainer.fit(model, datamodule=data_module, ckpt_path=ckpt_path)
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
+    parser.add_argument("--checkpoint", type=str, default=None)
     args = parser.parse_args()
     
     with open(args.config, "r") as f:
@@ -430,4 +431,4 @@ if __name__ == "__main__":
     
     config = OmegaConf.create(yaml_config)
 
-    run_training(cfg=config)
+    run_training(cfg=config, ckpt_path=args.checkpoint)

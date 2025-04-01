@@ -71,6 +71,16 @@ class EMA(Callback):
             if not isinstance(optim, EMAOptimizer)
         ]
         print("[EMA] on_fit_start: EMA optimizers have been initialized.")
+    
+    def on_save_checkpoint(self, trainer, pl_module, checkpoint):
+        ema_path = trainer.checkpoint_callback.dirpath
+        if ema_path is not None:
+            ema_filename = os.path.join(ema_path, f"{trainer.checkpoint_callback.filename}-EMA.ckpt")
+            with self.save_ema_model(trainer):
+                torch.save(checkpoint, ema_filename)
+                print(f"[EMA] Saved EMA checkpoint at {ema_filename}")
+    
+    
 
     def on_validation_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):

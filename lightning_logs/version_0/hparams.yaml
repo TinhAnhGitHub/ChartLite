@@ -12,21 +12,21 @@ config:
     patience: 50
   general:
     fast_dev_run: false
-    seed: 95
+    seed: 4231312312312312313123123
   images:
     rsz_height: 512
     rsz_width: 512
   learning_rate_scheduler:
-    num_cycles: 300
+    num_cycles: 10
     warmup_pct: 0.05
   metrics_tolerance:
     numeric_tolerance: 0.05
     string_tolerance: 2
   model:
-    backbone_path: google/matcha-chartqa
+    backbone_path: google/matcha-base
     bos_token_id: 1
     decoder_start_token_id: 1
-    frozen_percentage: 0.1
+    frozen_percentage: 0.3
     len_tokenizer: 50382
     max_length: 512
     max_length_generation: 512
@@ -35,15 +35,15 @@ config:
     patch_size: 16
   optimizer:
     grad_clip_value: 1.0
-    lr: 5e-5
+    lr: 7e-5
     weight_decay: 0.01
   outputs:
-    model_dir: ./run_expr
+    model_dir: /media/tinhanhnguyen/Data/Projects/School/Matcha/run_expr/experiment-test-awp-ema-test-n3
   train_params:
     adv_eps: 0.001
-    apply_every: 100
+    apply_every: 2
     awp_adv_lr: 0.005
-    awp_enable: true
+    awp_enable: false
     ema_cpu_offload: true
     ema_decay: 0.9999
     ema_enable: true
@@ -52,11 +52,11 @@ config:
     grad_accumulation: 16
     max_steps: 146560
     num_workers: 8
-    save_every_n_train_steps: 50000
-    train_bs: 2
+    save_every_n_train_steps: 4580
+    train_bs: 1
     use_fp16_mixed: true
-    val_bs: 2
-    val_check_interval: 50000
+    val_bs: 1
+    val_check_interval: 4580
   val_size: null
   vpn:
     devices: 2
@@ -65,7 +65,7 @@ config:
   wandb:
     enabled: false
     project: mga-dev-a1
-    run_name: experiment-test-awp-ema-test-n1
+    run_name: experiment-test-awp-ema-test-n3
 tokenizer: !!python/object:transformers.models.t5.tokenization_t5_fast.T5TokenizerFast
   SPECIAL_TOKENS_ATTRIBUTES:
   - bos_token
@@ -29305,7 +29305,7 @@ tokenizer: !!python/object:transformers.models.t5.tokenization_t5_fast.T5Tokeniz
       special: true
     extra_ids: 100
     model_max_length: 1000000000000000019884624838656
-    name_or_path: google/matcha-chartqa
+    name_or_path: google/matcha-base
     pad_token: !!python/object:tokenizers.AddedToken
       content: <pad>
       lstrip: false
@@ -29323,15 +29323,15 @@ tokenizer: !!python/object:transformers.models.t5.tokenization_t5_fast.T5Tokeniz
       rstrip: false
       single_word: false
       special: true
-    vocab_file: /home/tinhanhnguyen/.cache/huggingface/hub/models--google--matcha-chartqa/snapshots/38169a34e77f9adc7f37b5e205ba4f6006d21eca/spiece.model
+    vocab_file: /home/tinhanhnguyen/.cache/huggingface/hub/models--google--matcha-base/snapshots/8a3e42420c3465a9e98441bdf84fe70b59d57cb8/spiece.model
   model_input_names:
   - input_ids
   - attention_mask
   model_max_length: 1000000000000000019884624838656
-  name_or_path: google/matcha-chartqa
+  name_or_path: google/matcha-base
   padding_side: right
   return_token_type_ids: false
   split_special_tokens: false
   truncation_side: right
   verbose: false
-  vocab_file: /home/tinhanhnguyen/.cache/huggingface/hub/models--google--matcha-chartqa/snapshots/38169a34e77f9adc7f37b5e205ba4f6006d21eca/spiece.model
+  vocab_file: /home/tinhanhnguyen/.cache/huggingface/hub/models--google--matcha-base/snapshots/8a3e42420c3465a9e98441bdf84fe70b59d57cb8/spiece.model
