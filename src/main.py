@@ -153,30 +153,26 @@ class MatchaLightningModule(LightningModule):
         return loss, outputs
     
     def training_step(self, batch, batch_idx):
-        self.current_batch = batch
         loss, _ = self(
             flattened_patches=batch["flattened_patches"],
             attention_mask=batch["attention_mask"],
             labels=batch["labels"]
         )
-
-        self.train_metrics['loss'].update(loss,1)
+        loss_item = loss.item()
+        self.train_metrics['loss'].update(loss_item, 1)
         
-        current_step = self.global_step
-
-        self.log('train/loss_step', loss, on_step=True, prog_bar=True)
-        self.log('train/learning_rate', self.trainer.optimizers[0].param_groups[0]['lr'], on_step=True, prog_bar=True)
+        self.log('train/loss_step', loss_item, on_step=True, prog_bar=True)
+        current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+        self.log('train/learning_rate', current_lr, on_step=True, prog_bar=True)
 
         if self.use_wandb:
             wandb.log({
-                'train/loss_step': loss.item(),
-                'learning_rate': self.trainer.optimizers[0].param_groups[0]['lr'],
-            }, step=current_step)
-        
-        
+                'train/loss_step': loss_item,
+                'learning_rate': current_lr,
+            }, step=self.global_step)
         
         return loss
-    
+        
     def on_train_epoch_end(self):
         epoch_loss = self.train_metrics['loss'].avg
         self.log('train/epoch_loss', epoch_loss, on_epoch=True)
@@ -323,16 +319,18 @@ def run_training(cfg, ckpt_path=None):
     # os.environ["MASTER_PORT"] = "53154"
     # os.environ['NODE_RANK'] = "0"
     # os.environ['LOCAL_RANK'] = "0"
-    # os.environ["NCCL_SOCKET_FAMILY"] = "AF_INET"
-    
+    # os.environ["GLOO_SOCKET_FAMILY"] = "AF_INET"
+    # os.environ["TORCH_DISTRIBUTED_BACKEND"] = "gloo"
     # vpn_interface = cfg.vpn.name  # name for WireGuard interfaces
-    # os.environ["NCCL_SOCKET_IFNAME"] = vpn_interface
+    # os.environ["GLOO_SOCKET_IFNAME"] = vpn_interface
 
 
     seed_everything(cfg.general.seed)
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir, exist_ok=True)
+        os.makedirs(os.path.join(checkpoint_dir, 'best_ckpts'), exist_ok=True)
+        os.makedirs(os.path.join(checkpoint_dir, 'last_ckpts'), exist_ok=True)
     callbacks = [
         ModelCheckpoint(
             monitor=cfg.best_ckpt.monitor,
@@ -404,7 +402,7 @@ def run_training(cfg, ckpt_path=None):
         devices=torch.cuda.device_count(),
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
         callbacks=callbacks,
-        # num_nodes=cfg.vpn.nodes,
+        #num_nodes=cfg.vpn.nodes,
         gradient_clip_val=cfg.optimizer.grad_clip_value,
         accumulate_grad_batches=cfg.train_params.grad_accumulation,
         precision= '16' if cfg.train_params.use_fp16_mixed else '32',
@@ -417,6 +415,7 @@ def run_training(cfg, ckpt_path=None):
         
     )
 
+    print(f"Datamodule: {data_module}")
     trainer.fit(model, datamodule=data_module, ckpt_path=ckpt_path)
 
 if __name__ == "__main__":

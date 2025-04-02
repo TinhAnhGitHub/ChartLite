@@ -76,6 +76,7 @@ class EMA(Callback):
         ema_path = trainer.checkpoint_callback.dirpath
         if ema_path is not None:
             ema_filename = os.path.join(ema_path, f"{trainer.checkpoint_callback.filename}-EMA.ckpt")
+            os.makedirs(os.path.dirname(ema_filename), exist_ok=True)
             with self.save_ema_model(trainer):
                 torch.save(checkpoint, ema_filename)
                 print(f"[EMA] Saved EMA checkpoint at {ema_filename}")

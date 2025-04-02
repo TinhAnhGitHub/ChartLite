@@ -1,6 +1,6 @@
 general:
   fast_dev_run: false
-  seed: 4231312312312312313123123
+  seed: 42
 
 model:
   backbone_path: google/matcha-base
@@ -14,7 +14,6 @@ model:
   max_length_generation: 512
   frozen_percentage: 0.3
 
-
 train_params:
   train_bs: 1
   val_bs: 1
@@ -26,15 +25,15 @@ train_params:
   save_every_n_train_steps: 70000
   ema_enable: true
   ema_decay: 0.9999
-  ema_validate_original_weights: false 
+  ema_validate_original_weights: false
   ema_every_n_steps: 1
   ema_cpu_offload: true
-  
+
   awp_enable: false
   awp_adv_lr: 0.005
   adv_eps: 0.001
   apply_every: 2
-  
+
 optimizer:
   lr: 7e-5
   weight_decay: 0.01
@@ -50,7 +49,7 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: /media/tinhanhnguyen/Data/Projects/School/Matcha/run_expr/experiment-test-awp-ema-test-n3
+  model_dir: ./run_expr/exp4
 
 best_ckpt:
   monitor: 'val/overall_sim_avg'
@@ -70,7 +69,7 @@ early_stopping:
 # 146 p = 2h20
 #9h10 chay dc 0.15 epoch  = 2200 step
 dataset:
-  parquet_dict: /media/tinhanhnguyen/Data/Projects/School/Matcha/downsampled_cleaned_chartQa_plotQa_colored/data
+  parquet_dict: ./downsampled_cleaned_chartQa_plotQa_colored/data
   data_ratio: 1
 
 
@@ -78,12 +77,13 @@ dataset:
 wandb:
   enabled: false
   project: mga-dev-a1
-  run_name: experiment-test-awp-ema-test-n3
+  run_name: run-matcha-n1
 
 
 images:
   rsz_height: 512
   rsz_width: 512
+
 
 
 vpn:
