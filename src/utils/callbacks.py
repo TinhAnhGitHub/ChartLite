@@ -75,33 +75,48 @@ class EMA(Callback):
     def on_save_checkpoint(self, trainer, pl_module, checkpoint):
         ema_path = trainer.checkpoint_callback.dirpath
         if ema_path is not None:
-            ema_filename = os.path.join(ema_path, f"{trainer.checkpoint_callback.filename}-EMA.ckpt")
+            original_filename = trainer.checkpoint_callback.filename
+            
+            if '{step}' in original_filename:
+                original_filename = original_filename.replace('{step}', str(trainer.global_step))
+                
+            if original_filename.endswith('.ckpt'):
+                base_filename = original_filename[:-5] 
+            else:
+                base_filename = original_filename
+                
+            
+            decay_str = f"{self.decay:.4f}".replace('.', '')  
+            
+            ema_filename = os.path.join(
+                ema_path, 
+                f"{base_filename}-ema-d{decay_str}.ckpt"
+            )
+            
             os.makedirs(os.path.dirname(ema_filename), exist_ok=True)
+            
             with self.save_ema_model(trainer):
                 torch.save(checkpoint, ema_filename)
-                print(f"[EMA] Saved EMA checkpoint at {ema_filename}")
-    
+                
+          
+        
     
 
     def on_validation_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
-            print("[EMA] on_validation_start: Swapping to EMA weights for validation.")
             self.swap_model_weights(trainer)
 
     def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
-            print(
-                "[EMA] on_validation_end: Swapping back to original weights after validation.")
+            
             self.swap_model_weights(trainer)
 
     def on_test_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
-            print("[EMA] on_test_start: Swapping to EMA weights for testing.")
             self.swap_model_weights(trainer)
 
     def on_test_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         if self._should_validate_ema_weights(trainer):
-            print("[EMA] on_test_end: Swapping back to original weights after testing.")
             self.swap_model_weights(trainer)
 
     def _should_validate_ema_weights(self, trainer: "pl.Trainer") -> bool:
@@ -113,8 +128,6 @@ class EMA(Callback):
     def swap_model_weights(self, trainer: "pl.Trainer", saving_ema_model: bool = False):
         for optimizer in trainer.optimizers:
             assert isinstance(optimizer, EMAOptimizer)
-            print(
-                f"[EMA] swap_model_weights: Swapping weights. saving_ema_model={saving_ema_model}")
             optimizer.switch_main_parameter_weights(saving_ema_model)
 
     @contextlib.contextmanager
@@ -126,7 +139,6 @@ class EMA(Callback):
         try:
             yield
         finally:
-            print("[EMA] save_ema_model: swapping to EMA weights and saving")
             self.swap_model_weights(trainer, saving_ema_model=False)
 
     @contextlib.contextmanager

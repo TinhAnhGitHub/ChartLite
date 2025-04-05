@@ -32,16 +32,13 @@ class Matcha(nn.Module):
         num_hidden_layers = self.backbone.config.vision_config.num_hidden_layers
         
         to_freeze_layer = int(cfg.model.frozen_percentage * num_hidden_layers)
+        print(f"Remaining: {to_freeze_layer}")
         for layer in self.backbone.encoder.encoder.layer[:to_freeze_layer]:
             for param in layer.parameters():
                 param.requires_grad = False
         
-        print("Resizing model embeddings...")
-        print(f"Tokenizer length = {cfg.model.len_tokenizer}")
         self.backbone.decoder.resize_token_embeddings(cfg.model.len_tokenizer)
-        print("Finished resizing")
-        print(f"Model embedding size: {self.backbone.decoder.config.vocab_size}")
-        print(f"Decoder embedding matrix shape: {self.backbone.decoder.get_input_embeddings().weight.shape}")
+      
     def forward(self, flattened_patches, attention_mask, labels=None):
         outputs = self.backbone(
             flattened_patches=flattened_patches,
