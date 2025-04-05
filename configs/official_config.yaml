@@ -16,9 +16,9 @@ model:
 
 train_params:
   train_bs: 1
-  val_bs: 1
+  val_bs: 13
   max_steps: 146560
-  grad_accumulation: 16
+  grad_accumulation: 14
   use_fp16_mixed: true
   num_workers: 8
   val_check_interval: 70000
@@ -49,7 +49,7 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: ./run_expr/exp4
+  model_dir: ./run_expr/exp
 
 best_ckpt:
   monitor: 'val/overall_sim_avg'

@@ -113,21 +113,21 @@ class MatchaLightningModule(LightningModule):
             raise ValueError("EOS or PAD token ID is None. Ensure tokenizer has them defined.")
 
         
-        self.generation_config = GenerationConfig(
-            max_new_tokens=config.model.max_length_generation,
-            num_beams=4,
-            do_sample=False,
-            top_k=1,
-            use_cache=True,
-            early_stopping=True
-        )
-
         # self.generation_config = GenerationConfig(
         #     max_new_tokens=config.model.max_length_generation,
+        #     num_beams=4,
         #     do_sample=False,
         #     top_k=1,
-        #     use_cache=True
+        #     use_cache=True,
+        #     early_stopping=True
         # )
+
+        self.generation_config = GenerationConfig(
+            max_new_tokens=config.model.max_length_generation,
+            do_sample=False,
+            top_k=1,
+            use_cache=True
+        )
 
 
         self.train_metrics = {
@@ -199,6 +199,8 @@ class MatchaLightningModule(LightningModule):
                 attention_mask=batch["attention_mask"],
                 labels=batch["labels"]
             )
+
+            
 
             self.val_metrics["loss"].update(loss.item(), 1)
 

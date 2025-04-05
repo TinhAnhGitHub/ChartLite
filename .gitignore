@@ -13,7 +13,8 @@ benetech-mga/
 ChartQa_clean/
 logs/
 outputs/
-
+.vscode/
+lightning_logs/
 # Distribution / packaging
 .Python
 build/
