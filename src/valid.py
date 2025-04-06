@@ -85,10 +85,16 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
             generated_ids = model.backbone.generate(
                 flattened_patches=flattened_patches,
                 attention_mask=attention_mask,
-                max_new_tokens=config.model.max_length_generation,
-                do_sample=False,
-                top_k=1,
-                use_cache=True
+                # max_new_tokens=config.model.max_length_generation,
+                # do_sample=False,
+                # top_k=1,
+                # use_cache=True,
+                max_length = 1024,
+                max_new_tokens=60,            # Adjust based on expected output length
+                do_sample=False,              # Deterministic decoding with beam search
+                num_beams=4,                  # Moderate beam size for balanced quality and speed
+                use_cache=True,               # Improves speed by caching key/value pairs
+                no_repeat_ngram_size=2,       # Helps avoid repetitive phrases in outputs
             )
             
             
@@ -116,30 +122,23 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
         numeric_tolerance=config.metrics_tolerance.numeric_tolerance,
         string_tolerance=config.metrics_tolerance.string_tolerance
     )
+
     
-    results = {
-        "val_loss": avg_loss,
-        "f1_score": f1_score,
-        "accuracy": accuracy,
-        "overall_similarity": overall_sim
-    }
+    # results_file = os.path.join(config.outputs.model_dir, "validation_results.json")
+    # with open(results_file, 'w') as f:
+    #     json.dump(results, f, indent=4)
     
-    results_file = os.path.join(config.outputs.model_dir, "validation_results.json")
-    with open(results_file, 'w') as f:
-        json.dump(results, f, indent=4)
+    detailed_results = []
+    for  pred, generated_text, label in zip(all_preds,all_generated_text, all_labels):
+        detailed_results.append({
+            "prediction": pred,
+            "ground_truth": label,
+            "generated_texts":generated_text
+        })
     
-    # detailed_results = []
-    # for  pred, generated_text, label in zip(all_preds,all_generated_text, all_labels):
-    #     detailed_results.append({
-    #         "id": id_val,
-    #         "prediction": pred,
-    #         "ground_truth": label,
-    #         "generated_texts":generated_text
-    #     })
-    
-    # detailed_file = os.path.join(config.outputs.model_dir, "validation_detailed.json")
-    # with open(detailed_file, 'w') as f:
-    #     json.dump(detailed_results, f, indent=5)
+    detailed_file = os.path.join(config.outputs.model_dir, "validation_detailed.json")
+    with open(detailed_file, 'w') as f:
+        json.dump(detailed_results, f, indent=5)
     
     print(f"Validation Results:")
     print(f"Loss: {avg_loss:.4f}")
@@ -148,7 +147,6 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     print(f"Overall Similarity: {overall_sim:.4f}")
     print(f"Results saved to {results_file}")
     
-    return results
 
 
 if __name__ == "__main__":
@@ -158,9 +156,8 @@ if __name__ == "__main__":
     # parser.add_argument("--output_dir", type=str, default=None, help="Directory to save validation results")
     
     # args = parser.parse_args()
-
-    config = "/media/tinhanhnguyen/Data/Projects/School/Matcha/configs/official_config.yaml"
-    checkpoint = "/media/tinhanhnguyen/Data/Projects/School/Matcha/run_expr/exp4/checkpoints/best_ckpts/best-checkpoint-{step}-EMA.ckpt"
-    output_dir = "/media/tinhanhnguyen/Data/Projects/School/Matcha/run_expr"
+    config = "/mnt/c/justLearning/deepLearning/20M/Matcha/configs/official_config.yaml"
+    checkpoint = "/mnt/c/justLearning/deepLearning/20M/run_expr/exp/checkpoints/best_ckpts/best-checkpoint-31410-ema-d09999.ckpt"
+    output_dir = "/mnt/c/justLearning/deepLearning/20M/Matcha/run_expr"
     
     validate(config, checkpoint, output_dir)

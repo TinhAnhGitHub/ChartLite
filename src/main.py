@@ -204,47 +204,47 @@ class MatchaLightningModule(LightningModule):
 
             self.val_metrics["loss"].update(loss.item(), 1)
 
-            generated_ids = self.model.backbone.generate(
-                flattened_patches=batch["flattened_patches"],
-                attention_mask=batch["attention_mask"],
-                generation_config=self.generation_config,
-            )
+            # generated_ids = self.model.backbone.generate(
+            #     flattened_patches=batch["flattened_patches"],
+            #     attention_mask=batch["attention_mask"],
+            #     generation_config=self.generation_config,
+            # )
 
-            generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-            label_texts = batch["texts"]
+            # generated_texts = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+            # label_texts = batch["texts"]
 
             
 
-            label_dicts = [post_processing(label_text, TOKEN_MAP) for label_text in label_texts]
-            preds = [(batch['id'], post_processing(generated_text, TOKEN_MAP)) for generated_text in generated_texts]
+            # label_dicts = [post_processing(label_text, TOKEN_MAP) for label_text in label_texts]
+            # preds = [(batch['id'], post_processing(generated_text, TOKEN_MAP)) for generated_text in generated_texts]
         
-            output_str = (
-                f"{'*'*50}\n"
-                f"During validation step {batch_idx}\n"
-                f"Label dict: {label_dicts}\n"
-                f"Generated text: {generated_texts}\n"
-                f"Predictions: {preds}\n"
-                f"{'*'*50}\n"
-            )
-            self.validation_outputs.append(output_str)
+            # output_str = (
+            #     f"{'*'*50}\n"
+            #     f"During validation step {batch_idx}\n"
+            #     f"Label dict: {label_dicts}\n"
+            #     f"Generated text: {generated_texts}\n"
+            #     f"Predictions: {preds}\n"
+            #     f"{'*'*50}\n"
+            # )
+            # self.validation_outputs.append(output_str)
 
-            f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
-            accuracy = self.eval_json.cal_acc(preds=preds, answers=label_dicts)
+            # f1_score = self.eval_json.cal_f1(preds=preds, answers=label_dicts)
+            # accuracy = self.eval_json.cal_acc(preds=preds, answers=label_dicts)
 
-            overall_sim = self.eval_json.compare_json_list(
-                label_dicts, preds,
-                numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
-                string_tolerance=self.config.metrics_tolerance.string_tolerance
-            )
+            # overall_sim = self.eval_json.compare_json_list(
+            #     label_dicts, preds,
+            #     numeric_tolerance=self.config.metrics_tolerance.numeric_tolerance,
+            #     string_tolerance=self.config.metrics_tolerance.string_tolerance
+            # )
 
-            self.val_metrics["f1"].update(f1_score, 1)
-            self.val_metrics["accuracy"].update(accuracy, 1)
-            self.val_metrics["overall_sim"].update(overall_sim, 1)
+            # self.val_metrics["f1"].update(f1_score, 1)
+            # self.val_metrics["accuracy"].update(accuracy, 1)
+            # self.val_metrics["overall_sim"].update(overall_sim, 1)
 
         self.log('val/loss_step', loss.item(), on_step=True, prog_bar=True)
-        self.log('val/f1_step', f1_score, on_step=True)
-        self.log('val/accuracy_step', accuracy, on_step=True)
-        self.log('val/overall_sim_step', overall_sim, on_step=True)
+        # self.log('val/f1_step', f1_score, on_step=True)
+        # self.log('val/accuracy_step', accuracy, on_step=True)
+        # self.log('val/overall_sim_step', overall_sim, on_step=True)
         return loss
 
     def on_validation_epoch_start(self):
@@ -256,37 +256,37 @@ class MatchaLightningModule(LightningModule):
     def on_validation_epoch_end(self):
         current_step = self.global_step
         val_loss_avg = self.val_metrics["loss"].avg
-        f1_avg = self.val_metrics["f1"].avg
-        accuracy_avg = self.val_metrics["accuracy"].avg
-        overall_sim_avg = self.val_metrics["overall_sim"].avg
+        # f1_avg = self.val_metrics["f1"].avg
+        # accuracy_avg = self.val_metrics["accuracy"].avg
+        # overall_sim_avg = self.val_metrics["overall_sim"].avg
 
         self.log('val/loss_avg', val_loss_avg, on_epoch=True, prog_bar=True)
-        self.log('val/f1_avg', f1_avg, on_epoch=True, prog_bar=True)
-        self.log('val/accuracy_avg', accuracy_avg, on_epoch=True)
-        self.log('val/overall_sim_avg', overall_sim_avg, on_epoch=True) 
+        # self.log('val/f1_avg', f1_avg, on_epoch=True, prog_bar=True)
+        # self.log('val/accuracy_avg', accuracy_avg, on_epoch=True)
+        # self.log('val/overall_sim_avg', overall_sim_avg, on_epoch=True) 
         
         if self.use_wandb:
             wandb.log({
                 "val/loss_avg": val_loss_avg,
-                "val/f1_avg": f1_avg,
-                "val/accuracy_avg": accuracy_avg,
-                "val/overall_sim_avg": overall_sim_avg,
+                # "val/f1_avg": f1_avg,
+                # "val/accuracy_avg": accuracy_avg,
+                # "val/overall_sim_avg": overall_sim_avg,
             }, step=current_step)
 
-        if self.global_rank == 0:
-            self.print(f"[Val End Rank {self.global_rank}] Step {current_step} - Loss: {val_loss_avg:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}")
+        # if self.global_rank == 0:
+        #     self.print(f"[Val End Rank {self.global_rank}] Step {current_step} - Loss: {val_loss_avg:.4f}, F1: {f1_avg:.4f}, Acc: {accuracy_avg:.4f}")
 
-            log_file_path = os.path.join(self.config.outputs.model_dir,f"validation_step_{current_step}_outputs.txt")
-            try:
-                with open(log_file_path, 'a', encoding='utf-8') as f:
-                    f.write(f"--- Validation outputs for Step {current_step} ---\n")
-                    f.write(f"Avg Loss: {val_loss_avg:.4f}, Avg F1: {f1_avg:.4f}, Avg Acc: {accuracy_avg:.4f}, Avg Sim: {overall_sim_avg:.4f}\n")
-                    f.write("="*50 + "\n\n")
-                    for output in self.validation_outputs:
-                        f.write(output + "\n")
-                self.print(f"Validation outputs written to {log_file_path}")
-            except Exception as e:
-                self.print(f"Error writing validation outputs to file: {e}")
+        #     log_file_path = os.path.join(self.config.outputs.model_dir,f"validation_step_{current_step}_outputs.txt")
+        #     try:
+        #         with open(log_file_path, 'a', encoding='utf-8') as f:
+        #             f.write(f"--- Validation outputs for Step {current_step} ---\n")
+        #             f.write(f"Avg Loss: {val_loss_avg:.4f}, Avg F1: {f1_avg:.4f}, Avg Acc: {accuracy_avg:.4f}, Avg Sim: {overall_sim_avg:.4f}\n")
+        #             f.write("="*50 + "\n\n")
+        #             for output in self.validation_outputs:
+        #                 f.write(output + "\n")
+        #         self.print(f"Validation outputs written to {log_file_path}")
+        #     except Exception as e:
+        #         self.print(f"Error writing validation outputs to file: {e}")
                     
 
     def configure_optimizers(self):
@@ -408,8 +408,9 @@ def run_training(cfg, ckpt_path=None):
         gradient_clip_val=cfg.optimizer.grad_clip_value,
         accumulate_grad_batches=cfg.train_params.grad_accumulation,
         precision= '16' if cfg.train_params.use_fp16_mixed else '32',
-        check_val_every_n_epoch=None,
-        val_check_interval=cfg.train_params.val_check_interval,
+        # check_val_every_n_epoch=None,
+        # val_check_interval=cfg.train_params.val_check_interval,
+        val_check_interval= 0.0,
         fast_dev_run=cfg.general.fast_dev_run,
         num_sanity_val_steps=0,
         enable_checkpointing=True,
