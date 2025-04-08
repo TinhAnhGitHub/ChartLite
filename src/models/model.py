@@ -19,8 +19,6 @@ class Matcha(nn.Module):
         backbone_config.text_config.pad_token_id = cfg.model.pad_token_id
         backbone_config.text_config.decoder_start_token_id = cfg.model.decoder_start_token_id
         backbone_config.text_config.bos_token_id = cfg.model.bos_token_id
-        backbone_config.dropout = cfg.model.get("dropout_rate", 0.1)  # default to 0.1 if not provided
-        backbone_config.attention_dropout = cfg.model.get("attention_dropout_rate", 0.1)
 
 
         self.backbone = Pix2StructForConditionalGeneration.from_pretrained(

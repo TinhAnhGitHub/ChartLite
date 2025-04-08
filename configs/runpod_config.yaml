@@ -14,6 +14,18 @@ model:
   max_length_generation: 1024
   frozen_percentage: 0
 
+# train_bs: 10
+# grad_accumulation: 16
+# total dataset: 146557
+# epoch: 10
+
+# max_step sample: 
+
+# max_step = (total_dataset * epoch) / (grad_accumulation * train_bs)
+
+
+
+
 train_params:
   train_bs: 1
   val_bs: 1
