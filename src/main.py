@@ -6,7 +6,7 @@ from transformers import get_cosine_schedule_with_warmup, GenerationConfig
 from torch.optim import AdamW
 
 from lightning.pytorch import LightningDataModule, LightningModule, Trainer, seed_everything
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, RichProgressBar
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, TQDMProgressBar
 
 import warnings
 import wandb
@@ -15,7 +15,7 @@ import yaml
 import argparse
 from  omegaconf import OmegaConf
 
-from utils import TOKEN_MAP, JSONParseEvaluator, post_processing, AverageMeter, EMA, AWPCallback
+from utils import TOKEN_MAP, JSONParseEvaluator, AverageMeter, EMA, AWPCallback
 from data import ChartCollator, ChartDataset
 from models import Matcha
 warnings.filterwarnings("ignore")
@@ -112,38 +112,14 @@ class MatchaLightningModule(LightningModule):
         if eos_token_id is None or pad_token_id is None:
             raise ValueError("EOS or PAD token ID is None. Ensure tokenizer has them defined.")
 
-        
-        # self.generation_config = GenerationConfig(
-        #     max_new_tokens=config.model.max_length_generation,
-        #     num_beams=4,
-        #     do_sample=False,
-        #     top_k=1,
-        #     use_cache=True,
-        #     early_stopping=True
-        # )
-
-        self.generation_config = GenerationConfig(
-            max_new_tokens=config.model.max_length_generation,
-            do_sample=False,
-            top_k=1,
-            use_cache=True
-        )
-
 
         self.train_metrics = {
             'loss': AverageMeter(),
-            'f1': AverageMeter(),
-            'accuracy': AverageMeter(),
-            'overall_sim': AverageMeter()
         }
         self.val_metrics = {
             "loss": AverageMeter(),
-            "f1": AverageMeter(),
-            "accuracy": AverageMeter(),
-            "overall_sim": AverageMeter()
         }
         self.validation_outputs = []
-        
         self.use_wandb = config.wandb.enabled
         self.eval_json = JSONParseEvaluator()
         self.save_hyperparameters()
@@ -189,10 +165,7 @@ class MatchaLightningModule(LightningModule):
             current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
             self.print(f"[Train End Rank {self.global_rank}] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f} - Learning rate: {current_lr:.6f}")
         self.train_metrics['loss'].reset() 
-        self.train_metrics['f1'].reset()
-        self.train_metrics['accuracy'].reset()
-        self.train_metrics['overall_sim'].reset()
-        
+
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
             loss, _ = self(
@@ -200,11 +173,7 @@ class MatchaLightningModule(LightningModule):
                 attention_mask=batch["attention_mask"],
                 labels=batch["labels"]
             )
-
-            
-
             self.val_metrics["loss"].update(loss.item(), 1)
-
         self.log('val/loss_step', loss.item(), on_step=True, prog_bar=True)
         return loss
 
@@ -263,12 +232,12 @@ def run_training(cfg, ckpt_path=None):
             monitor=cfg.best_ckpt.monitor,
             mode=cfg.best_ckpt.mode,
             save_top_k=cfg.best_ckpt.save_top_k,
-            filename="best-checkpoint-{step}",
+            filename="best-checkpoint-{step}-{val/loss_avg}",
             dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
         ),
         ModelCheckpoint(
             save_last=True,
-            filename="last-checkpoint-{step}",
+            filename="last-checkpoint-{step}-{val/loss_avg}",
             every_n_train_steps=cfg.train_params.save_every_n_train_steps,
             every_n_epochs=None,
             dirpath=os.path.join(checkpoint_dir, 'last_ckpts')
@@ -281,7 +250,7 @@ def run_training(cfg, ckpt_path=None):
         ),
         LearningRateMonitor(logging_interval='step'),
         Timer(),
-        RichProgressBar(refresh_rate=cfg.train_params.train_bs * cfg.train_params.grad_accumulation),
+        TQDMProgressBar(refresh_rate=cfg.train_params.train_bs * cfg.train_params.grad_accumulation),
         
     ]
 
