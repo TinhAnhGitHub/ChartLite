@@ -12,7 +12,9 @@ model:
   decoder_start_token_id: ???
   bos_token_id: ???
   max_length_generation: 1024
-  frozen_percentage: 0
+  frozen_percentage: 0.8
+  freeze_layernorm: true  
+  freeze_pos_emb: true  
 
 train_params:
   train_bs: 1
@@ -20,7 +22,7 @@ train_params:
   max_steps: 1465570  # 1_465_570, a single epoch will have 146_557 train rows
   grad_accumulation: 16
   use_fp16_mixed: true
-  num_workers: 20
+  num_workers: 20 
   val_check_interval: 30000  # 80_000 
   save_every_n_train_steps: 30000 # 80_000 
   ema_enable: false
