@@ -195,8 +195,20 @@ class MatchaLightningModule(LightningModule):
             }, step=current_step)
 
     def configure_optimizers(self):
+
+        param_groups = [
+            {
+                "params": self.model.backbone.encoder.parameters(),
+                "lr": float(self.config.optimizer.encoder_lr), 
+            },
+            {
+                "params": self.model.backbone.decoder.parameters(),
+                "lr": float(self.config.optimizer.decoder_lr),
+            },
+        ]
+
         optimizer = AdamW(
-            params=self.model.parameters(),
+            params=param_groups,
             lr = float(self.config.optimizer.lr),
             weight_decay= float(self.config.optimizer.weight_decay)
         )
