@@ -77,9 +77,8 @@ class Matcha(nn.Module):
         """Creates a closure to inject adapter output after the original forward."""
         def forward_wrapper(*args, **kwargs):
             outputs = original_forward(*args, **kwargs)
-            # Assumes the first output is the tensor we want to modify.
             layer_output = outputs[0]
-            layer_output = adapter(layer_output)
+            layer_output = adapter(layer_output, skip=layer_output)
             return (layer_output,) + outputs[1:]
         return forward_wrapper
 
@@ -98,7 +97,6 @@ class Matcha(nn.Module):
         for layer in self.backbone.encoder.encoder.layer:
             adapter = AdapterPlus(**adapter_config)
             layer.adapter = adapter
-            # Wrap the layer's forward method without capturing `layer` in closure.
             layer.forward = self._create_forward_wrapper(layer.forward, adapter)
 
     def _resize_token_embeddings(self):
