@@ -16,32 +16,41 @@ model:
   adapter_layer_range: [6, 12] 
 
 
+# epoch3
+
 train_params:
   train_bs: 3
   val_bs: 10
-  max_steps: 1465570  # 1_465_570, a single epoch will have 146_557 train rows
+  max_steps: 132921 # 146557 total samples per epoch
   grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 20 
-  val_check_interval: 44000  # 80_000 
-  save_every_n_train_steps: 30000 # 80_000 
+  val_check_interval: 10000
+  save_every_n_train_steps: 10000
   ema_enable: false
   ema_decay: 0.9999
   ema_validate_original_weights: false
   ema_every_n_steps: 1
   ema_cpu_offload: true
-
   awp_enable: false
   awp_adv_lr: 0.005
   adv_eps: 0.001
   apply_every: 2
 
+
+
 optimizer:
   lr: 7e-5
   weight_decay: 0.01
   grad_clip_value: 1.0
-  decoder_lr: 7e-5
-  encoder_lr: 7e-5
+  encoder_lr: 1.0e-6 
+  decoder_lr: 1.0e-4  
+  adapter_lr: 1.0e-3  
+  encoder_weight_decay: 0.01 
+  decoder_weight_decay: 0.01 
+  adapter_weight_decay: 0.00
+
+
 learning_rate_scheduler:
   warmup_pct: 0.05
   num_cycles: 10
@@ -65,23 +74,16 @@ early_stopping:
   mode: 'max'
 
 
-# total step for 1 epoch = 14656 step
-# 4 epeoch = 58624
-#2200  step = 0.15 epoch
-#586 step = 0.04 epoch
-# 146 p = 2h20
-#9h10 chay dc 0.15 epoch  = 2200 
 dataset:
   parquet_dict: ./downsampled_cleaned_chartQa_plotQa_distributedAndStandardized/data
-  data_ratio: 1
-
+  data_ratio: 1.0
 
 
 wandb:
-  enabled: false
+  enabled: true
   project: mga-dev-a1
-  run_name: adapter_test_fully_freeze_encoder
-
+  run_name: adpter_half_encoder_half_test
+  api_key: 29662cde24039f6694273fcbc7496824462ed703
 
 images:
   rsz_height: 512

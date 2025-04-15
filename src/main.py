@@ -1,119 +1,117 @@
-    import os
-    import glob
-    import torch
-    from torch.utils.data import DataLoader, DistributedSampler
-    from transformers import get_cosine_schedule_with_warmup, GenerationConfig
-    from torch.optim import AdamW
+import os
+import glob
+import torch
+from torch.utils.data import DataLoader, DistributedSampler
+from transformers import get_cosine_schedule_with_warmup, GenerationConfig
+from torch.optim import AdamW
 
-    from lightning.pytorch import LightningDataModule, LightningModule, Trainer, seed_everything
-    from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, TQDMProgressBar
+from lightning.pytorch import LightningDataModule, LightningModule, Trainer, seed_everything
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, TQDMProgressBar
 
-    import warnings
-    import wandb
-    import yaml
+import warnings
+import wandb
+import yaml
 
-    import argparse
-    from  omegaconf import OmegaConf
+import argparse
+from  omegaconf import OmegaConf
 
-    from utils import TOKEN_MAP, JSONParseEvaluator, AverageMeter, EMA, AWPCallback
-    from data import ChartCollator, ChartDataset
-    from models import Matcha
-    warnings.filterwarnings("ignore")
-    BOS_TOKEN = TOKEN_MAP["bos_token"]
-    torch.set_float32_matmul_precision('high')
-
-
-
-    class ChartDataModule(LightningDataModule):
-        def __init__(self, config):
-            super().__init__()
-            self.config = config
-            self.processor = None
-            self.tokenizer = None
-            self.train_dataset = None
-            self.val_dataset = None
-            self.val_size = None
-        
-        def setup(self, stage=None):
-            directory = self.config.dataset.parquet_dict
-            train_files = glob.glob(os.path.join(directory, "train*.parquet"))
-            valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))
-            test_files = glob.glob(os.path.join(directory, "test*.parquet"))
+from utils import TOKEN_MAP, JSONParseEvaluator, AverageMeter, EMA, AWPCallback
+from data import ChartCollator, ChartDataset
+from models import Matcha
+warnings.filterwarnings("ignore")
+BOS_TOKEN = TOKEN_MAP["bos_token"]
+torch.set_float32_matmul_precision('high')
 
 
-            temp_dataset = ChartDataset(self.config, train_files)
-            self.processor = temp_dataset.processor
-            self.tokenizer = self.processor.tokenizer
-            self.config.model.len_tokenizer = len(self.tokenizer)  
-            self.config.model.pad_token_id = self.tokenizer.pad_token_id  
-            self.config.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
-            self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
 
-            
+class ChartDataModule(LightningDataModule):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.processor = None
+        self.tokenizer = None
+        self.train_dataset = None
+        self.val_dataset = None
+        self.val_size = None
+    
+    def setup(self, stage=None):
+        directory = self.config.dataset.parquet_dict
+        train_files = glob.glob(os.path.join(directory, "train*.parquet"))
+        valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))
+        test_files = glob.glob(os.path.join(directory, "test*.parquet"))
 
-            self.train_dataset = ChartDataset(self.config, train_files)
-            self.val_dataset = ChartDataset(self.config, valid_files)
-            self.test_dataset = ChartDataset(self.config, test_files)
 
-        def train_dataloader(self):
-            collate_fn = ChartCollator(self.tokenizer)
+        temp_dataset = ChartDataset(self.config, train_files)
+        self.processor = temp_dataset.processor
+        self.tokenizer = self.processor.tokenizer
+        self.config.model.len_tokenizer = len(self.tokenizer)  
+        self.config.model.pad_token_id = self.tokenizer.pad_token_id  
+        self.config.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
+        self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
 
-            train_sampler = DistributedSampler(
-                self.train_dataset,
-                num_replicas=self.trainer.world_size,  
-                rank=self.trainer.global_rank,         
-                shuffle=True                           
-            ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+        self.train_dataset = ChartDataset(self.config, train_files)
+        self.val_dataset = ChartDataset(self.config, valid_files)
+        self.test_dataset = ChartDataset(self.config, test_files)
 
-            return DataLoader(
-                self.train_dataset,
-                batch_size=self.config.train_params.train_bs,
-                collate_fn=collate_fn,
-                num_workers=self.config.train_params.num_workers,
-                pin_memory=True,
-                shuffle=(train_sampler is None),       
-                sampler=train_sampler,                 
-                persistent_workers=True
-            )
+    def train_dataloader(self):
+        collate_fn = ChartCollator(self.tokenizer)
 
-        def val_dataloader(self):
-            collate_fn = ChartCollator(self.tokenizer)
-            val_sampler = DistributedSampler(
-                self.val_dataset,
-                num_replicas=self.trainer.world_size,
-                rank=self.trainer.global_rank,
-                shuffle=False                          
-            ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
-            return DataLoader(
-                self.val_dataset,
-                batch_size=self.config.train_params.val_bs,
-                collate_fn=collate_fn,
-                num_workers=self.config.train_params.num_workers,
-                pin_memory=True,
-                shuffle=False,                         
-                sampler=val_sampler,                  
-                persistent_workers=True
-            )
-        
-        def test_dataloader(self):
-            collate_fn = ChartCollator(self.tokenizer)
-            test_sampler = DistributedSampler(
-                self.test_dataset,
-                num_replicas=self.trainer.world_size,
-                rank=self.trainer.global_rank,
-                shuffle=False                          
-            ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+        train_sampler = DistributedSampler(
+            self.train_dataset,
+            num_replicas=self.trainer.world_size,  
+            rank=self.trainer.global_rank,         
+            shuffle=True                           
+        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
 
-            return DataLoader(
-                self.test_dataset,
-                batch_size=self.config.train_params.val_bs,
-                collate_fn=collate_fn,
-                num_workers=self.config.train_params.num_workers,
-                pin_memory=True,
-                shuffle=False,                         
-                sampler=test_sampler,                  
-                persistent_workers=True
-            )
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.config.train_params.train_bs,
+            collate_fn=collate_fn,
+            num_workers=self.config.train_params.num_workers,
+            pin_memory=True,
+            shuffle=(train_sampler is None),       
+            sampler=train_sampler,                 
+            persistent_workers=True
+        )
+
+    def val_dataloader(self):
+        collate_fn = ChartCollator(self.tokenizer)
+        val_sampler = DistributedSampler(
+            self.val_dataset,
+            num_replicas=self.trainer.world_size,
+            rank=self.trainer.global_rank,
+            shuffle=False                          
+        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.config.train_params.val_bs,
+            collate_fn=collate_fn,
+            num_workers=self.config.train_params.num_workers,
+            pin_memory=True,
+            shuffle=False,                         
+            sampler=val_sampler,                  
+            persistent_workers=True
+        )
+    
+    def test_dataloader(self):
+        collate_fn = ChartCollator(self.tokenizer)
+        test_sampler = DistributedSampler(
+            self.test_dataset,
+            num_replicas=self.trainer.world_size,
+            rank=self.trainer.global_rank,
+            shuffle=False                          
+        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.config.train_params.val_bs,
+            collate_fn=collate_fn,
+            num_workers=self.config.train_params.num_workers,
+            pin_memory=True,
+            shuffle=False,                         
+            sampler=test_sampler,                  
+            persistent_workers=True
+        )
 
 
 class MatchaLightningModule(LightningModule):
@@ -245,10 +243,12 @@ class MatchaLightningModule(LightningModule):
         param_groups.append({"params": decoder_params, "lr": float(self.config.optimizer.decoder_lr), 'weight_decay': float(self.config.optimizer.decoder_weight_decay)})
 
         adapter_params = []
-        for n, p in self.model.model.named_parameters(): 
-            if "adapter" in n and p.requires_grad:
+        encoder_param_ids = {id(p) for p in encoder_params}
+        decoder_param_ids = {id(p) for p in decoder_params}
+        
+        for n, p in self.model.named_parameters():
+            if "adapter" in n and p.requires_grad and id(p) not in encoder_param_ids and id(p) not in decoder_param_ids:
                 adapter_params.append(p)
-        param_groups.append({"params": adapter_params, "lr": float(self.config.optimizer.adapter_lr), 'weight_decay': float(self.config.optimizer.adapter_weight_decay)})
 
         optimizer = AdamW(
             params=param_groups,
@@ -286,12 +286,12 @@ def run_training(cfg, ckpt_path=None):
             monitor=cfg.best_ckpt.monitor,
             mode=cfg.best_ckpt.mode,
             save_top_k=cfg.best_ckpt.save_top_k,
-            filename="best-checkpoint-{step}-{val/loss_avg}",
+            filename="best-val_loss_{val/loss_avg:.4f}-step_{step}",
             dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
         ),
         ModelCheckpoint(
             save_last=True,
-            filename="last-checkpoint-{step}-{val/loss_avg}",
+            filename="last-epoch_{epoch}-step_{step}-val_loss_{val/loss_avg:.4f}",
             every_n_train_steps=cfg.train_params.save_every_n_train_steps,
             every_n_epochs=None,
             dirpath=os.path.join(checkpoint_dir, 'last_ckpts')
@@ -370,10 +370,10 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
     parser.add_argument("--checkpoint", type=str, default=None)
     args = parser.parse_args()
-    
     with open(args.config, "r") as f:
         yaml_config = yaml.safe_load(f)
     
     config = OmegaConf.create(yaml_config)
 
+    os.environ["WANDB_API_KEY"] = config.wandb.api_key if config.wandb.api_key else None
     run_training(cfg=config, ckpt_path=args.checkpoint)

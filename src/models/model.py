@@ -66,10 +66,6 @@ class Matcha(nn.Module):
         else:
             print("No encoder layers specified for freezing.")
 
-
-
-
-
     @staticmethod
     def _create_forward_wrapper(original_forward, adapter):
         """Creates a closure to inject adapter output after the original forward."""
