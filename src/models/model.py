@@ -72,7 +72,7 @@ class Matcha(nn.Module):
         def forward_wrapper(*args, **kwargs):
             outputs = original_forward(*args, **kwargs)
             layer_output = outputs[0]
-            layer_output = adapter(layer_output, layer_output)
+            layer_output = adapter(layer_output, skip=layer_output)
             return (layer_output,) + outputs[1:]
         return forward_wrapper
 
