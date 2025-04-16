@@ -73,12 +73,13 @@ class ChartDataset(Dataset):
         
         dfs = [pd.read_parquet(parquet_path) for parquet_path in parquet_paths]
         self.parquet_df = pd.concat(dfs, ignore_index=True)
-        
 
         if 'id' in self.parquet_df.columns and self.parquet_df['id'].is_unique:
-            self.graph_ids = self.parquet_df['id'].tolist()
+            self.data_ratio = int(len(self.parquet_df['id'].tolist())*config['dataset']['data_ratio'])
+            self.graph_ids = self.parquet_df['id'].tolist()[:self.data_ratio]
         else:
-            self.graph_ids = self.parquet_df.index.tolist()
+            self.data_ratio = int(len(self.parquet_df.index.tolist())*config['dataset']['data_ratio'])
+            self.graph_ids = self.parquet_df.index.tolist()[:self.data_ratio]
         
         
         self.processor = get_processor(config)

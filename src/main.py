@@ -22,6 +22,8 @@ warnings.filterwarnings("ignore")
 BOS_TOKEN = TOKEN_MAP["bos_token"]
 torch.set_float32_matmul_precision('high')
 
+
+
 class ChartDataModule(LightningDataModule):
     def __init__(self, config):
         super().__init__()
@@ -36,6 +38,7 @@ class ChartDataModule(LightningDataModule):
         directory = self.config.dataset.parquet_dict
         train_files = glob.glob(os.path.join(directory, "train*.parquet"))
         valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))
+        test_files = glob.glob(os.path.join(directory, "test*.parquet"))
 
 
         temp_dataset = ChartDataset(self.config, train_files)
@@ -46,18 +49,9 @@ class ChartDataModule(LightningDataModule):
         self.config.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
         self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
 
-        
-
         self.train_dataset = ChartDataset(self.config, train_files)
         self.val_dataset = ChartDataset(self.config, valid_files)
-        train_size = int(len(self.train_dataset) * self.config.dataset.data_ratio )
-        val_size = int(len(self.val_dataset) * self.config.dataset.data_ratio)
-        if train_size != len(self.train_dataset):
-            self.train_dataset, _ = torch.utils.data.random_split(self.train_dataset, [train_size, len(self.train_dataset) - train_size])
-            self.val_dataset, _ = torch.utils.data.random_split(self.val_dataset, [val_size, len(self.val_dataset) - val_size])
-            self.val_size = val_size
-
-
+        self.test_dataset = ChartDataset(self.config, test_files)
 
     def train_dataloader(self):
         collate_fn = ChartCollator(self.tokenizer)
@@ -98,6 +92,27 @@ class ChartDataModule(LightningDataModule):
             sampler=val_sampler,                  
             persistent_workers=True
         )
+    
+    def test_dataloader(self):
+        collate_fn = ChartCollator(self.tokenizer)
+        test_sampler = DistributedSampler(
+            self.test_dataset,
+            num_replicas=self.trainer.world_size,
+            rank=self.trainer.global_rank,
+            shuffle=False                          
+        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.config.train_params.val_bs,
+            collate_fn=collate_fn,
+            num_workers=self.config.train_params.num_workers,
+            pin_memory=True,
+            shuffle=False,                         
+            sampler=test_sampler,                  
+            persistent_workers=True
+        )
+
 
 class MatchaLightningModule(LightningModule):
     def __init__(self, config, tokenizer):
@@ -115,6 +130,7 @@ class MatchaLightningModule(LightningModule):
 
         self.train_metrics = {
             'loss': AverageMeter(),
+            'grad_norm': AverageMeter(),
         }
         self.val_metrics = {
             "loss": AverageMeter(),
@@ -134,11 +150,22 @@ class MatchaLightningModule(LightningModule):
             attention_mask=batch["attention_mask"],
             labels=batch["labels"]
         )
+
+        if self.config.optimizer.grad_clip_value > 0:
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config.optimizer.grad_clip_value, norm_type=2)
+        else:
+            grad_norm = orch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1e9, norm_type=2)
+        
+
+
         loss_item = loss.item()
         self.train_metrics['loss'].update(loss_item, 1)
-        
+        self.train_metrics['grad_norm'].update(grad_norm.item(), 1)
+
+
         self.log('train/loss_step', loss_item, on_step=True, prog_bar=True)
-   
+        self.log('train/grad_norm_step', grad_norm.item(), on_step=True, prog_bar=True)
+
 
         current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
         self.log('train/learning_rate', current_lr, on_step=True, prog_bar=True)
@@ -146,25 +173,30 @@ class MatchaLightningModule(LightningModule):
             wandb.log({
                 'train/loss_step': loss_item,
                 'learning_rate': current_lr,
+                'train/grad_norm_step': grad_norm.item(), 
             }, step=self.global_step)
         
         return loss
         
     def on_train_epoch_end(self):
         epoch_loss = self.train_metrics['loss'].avg
+        epoch_grad_norm = self.train_metrics['grad_norm'].avg 
         self.log('train/epoch_loss', epoch_loss, on_epoch=True)
+        self.log('train/epoch_grad_norm', epoch_grad_norm, on_epoch=True)
 
         if self.use_wandb:
             wandb.log({
                 'train/epoch_loss': epoch_loss,
+                'train/epoch_grad_norm': epoch_grad_norm, 
                 'epoch': self.current_epoch
             })
 
         
         if self.global_rank == 0:
             current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
-            self.print(f"[Train End Rank {self.global_rank}] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f} - Learning rate: {current_lr:.6f}")
-        self.train_metrics['loss'].reset() 
+            self.print(f"[Train End Rank {self.global_rank}] Epoch {self.current_epoch} - Avg Loss: {epoch_loss:.4f} - Avg Grad Norm: {epoch_grad_norm:.4f} - Learning rate: {current_lr:.6f}") 
+        self.train_metrics['loss'].reset()
+        self.train_metrics['grad_norm'].reset()
 
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
@@ -196,21 +228,32 @@ class MatchaLightningModule(LightningModule):
 
     def configure_optimizers(self):
 
-        param_groups = [
-            {
-                "params": self.model.backbone.encoder.parameters(),
-                "lr": float(self.config.optimizer.encoder_lr), 
-            },
-            {
-                "params": self.model.backbone.decoder.parameters(),
-                "lr": float(self.config.optimizer.decoder_lr),
-            },
-        ]
+        param_groups = []
+
+        encoder_params = []
+        for n, p in self.model.backbone.encoder.named_parameters():
+            if p.requires_grad:
+                encoder_params.append(p)
+        param_groups.append({"params": encoder_params, "lr": float(self.config.optimizer.encoder_lr), 'weight_decay': float(self.config.optimizer.encoder_weight_decay)})
+
+        decoder_params = []
+        for n, p in self.model.backbone.decoder.named_parameters():
+            if p.requires_grad:
+                decoder_params.append(p)
+        param_groups.append({"params": decoder_params, "lr": float(self.config.optimizer.decoder_lr), 'weight_decay': float(self.config.optimizer.decoder_weight_decay)})
+
+        adapter_params = []
+        encoder_param_ids = {id(p) for p in encoder_params}
+        decoder_param_ids = {id(p) for p in decoder_params}
+        
+        for n, p in self.model.named_parameters():
+            if "adapter" in n and p.requires_grad and id(p) not in encoder_param_ids and id(p) not in decoder_param_ids:
+                adapter_params.append(p)
 
         optimizer = AdamW(
             params=param_groups,
-            lr = float(self.config.optimizer.lr),
-            weight_decay= float(self.config.optimizer.weight_decay)
+            lr=float(self.config.optimizer.lr), #
+            weight_decay=float(self.config.optimizer.weight_decay) # 
         )
         max_steps = self.config.train_params.max_steps
         num_warmup_steps = int(self.config.learning_rate_scheduler.warmup_pct * max_steps)
@@ -231,7 +274,6 @@ class MatchaLightningModule(LightningModule):
             }
         }
 
-
 def run_training(cfg, ckpt_path=None):
     seed_everything(cfg.general.seed)
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
@@ -244,12 +286,12 @@ def run_training(cfg, ckpt_path=None):
             monitor=cfg.best_ckpt.monitor,
             mode=cfg.best_ckpt.mode,
             save_top_k=cfg.best_ckpt.save_top_k,
-            filename="best-checkpoint-{step}-{val/loss_avg}",
+            filename="best-val_loss_{val/loss_avg:.4f}-step_{step}",
             dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
         ),
         ModelCheckpoint(
             save_last=True,
-            filename="last-checkpoint-{step}-{val/loss_avg}",
+            filename="last-epoch_{epoch}-step_{step}-val_loss_{val/loss_avg:.4f}",
             every_n_train_steps=cfg.train_params.save_every_n_train_steps,
             every_n_epochs=None,
             dirpath=os.path.join(checkpoint_dir, 'last_ckpts')
@@ -328,10 +370,10 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, required=True, help="Path to config file")
     parser.add_argument("--checkpoint", type=str, default=None)
     args = parser.parse_args()
-    
     with open(args.config, "r") as f:
         yaml_config = yaml.safe_load(f)
     
     config = OmegaConf.create(yaml_config)
 
+    os.environ["WANDB_API_KEY"] = config.wandb.api_key if config.wandb.api_key else None
     run_training(cfg=config, ckpt_path=args.checkpoint)

@@ -20,8 +20,8 @@ class Matcha(nn.Module):
         - decoder_start_token_id: start token id for the decoder
         - bos_token_id: beginning-of-sequence token id
         - len_tokenizer: vocabulary size for resizing token embeddings
-        - frozen_percentage: fraction of encoder layers to freeze (0 to 1)
-          (or an integer number of layers can be provided)
+        - frozen_layer_range: list or tuple, range of encoder layers to freeze, e.g., [0, 6]
+        - adapter_layer_range: list or tuple, range of encoder layers to inject adapters, e.g., [6, 12]
         - freeze_layernorm: bool, whether to freeze all LayerNorm parameters
         - freeze_pos_emb: bool, whether to freeze all positional embeddings
     """
@@ -54,23 +54,17 @@ class Matcha(nn.Module):
         submodules, like LayerNorm and positional embeddings.
         """
         num_layers = self.backbone.config.vision_config.num_hidden_layers
-        if isinstance(self.cfg.model.frozen_percentage, float):
-            num_freeze = int(self.cfg.model.frozen_percentage * num_layers)
+        frozen_layer_range = self.cfg.model.get("frozen_layer_range", None)
+        if frozen_layer_range is not None:
+            start_freeze, end_freeze = frozen_layer_range
+            print(
+                f"Freezing encoder layers from {start_freeze} to {end_freeze} (exclusive) out of {num_layers} layers..."
+            )
+            for layer in self.backbone.encoder.encoder.layer[start_freeze:end_freeze]:
+                for param in layer.parameters():
+                    param.requires_grad = False
         else:
-            num_freeze = int(self.cfg.model.frozen_percentage)
-        print(f"Freezing first {num_freeze} out of {num_layers} encoder layers...")
-
-        for layer in self.backbone.encoder.encoder.layer[:num_freeze]:
-            for param in layer.parameters():
-                param.requires_grad = False
-
-        if self.cfg.model.freeze_layernorm or self.cfg.model.freeze_pos_emb:
-            for name, param in self.backbone.encoder.named_parameters():
-                lower_name = name.lower()
-                if self.cfg.model.freeze_layernorm and "layernorm" in lower_name:
-                    param.requires_grad = False
-                if self.cfg.model.freeze_pos_emb and "position" in lower_name:
-                    param.requires_grad = False
+            print("No encoder layers specified for freezing.")
 
     @staticmethod
     def _create_forward_wrapper(original_forward, adapter):
@@ -78,7 +72,7 @@ class Matcha(nn.Module):
         def forward_wrapper(*args, **kwargs):
             outputs = original_forward(*args, **kwargs)
             layer_output = outputs[0]
-            layer_output = adapter(layer_output)
+            layer_output = adapter(layer_output, skip=layer_output)
             return (layer_output,) + outputs[1:]
         return forward_wrapper
 
@@ -87,17 +81,23 @@ class Matcha(nn.Module):
         Injects an AdapterPlus into each encoder layer. The adapter is applied
         after the original forward pass.
         """
-        vision_config = self.backbone.config.encoder
         adapter_config = {
-            "embed_dim": vision_config.hidden_size,
-            "bottleneck_dim": 8,
+            "embed_dim": 768,
+            "bottleneck_dim": 32,
             "drop_path": 0.1,
             "dropout": 0.0,
         }
-        for layer in self.backbone.encoder.encoder.layer:
-            adapter = AdapterPlus(**adapter_config)
-            layer.adapter = adapter
-            layer.forward = self._create_forward_wrapper(layer.forward, adapter)
+        adapter_layer_range = self.cfg.model.get("adapter_layer_range", None) 
+        if adapter_layer_range is not None:
+            start_adapter, end_adapter = adapter_layer_range
+            print(f"Injecting adapters into encoder layers from {start_adapter} to {end_adapter} (exclusive)...")
+
+            for layer in self.backbone.encoder.encoder.layer[start_adapter:end_adapter]:
+                adapter = AdapterPlus(**adapter_config)
+                layer.adapter = adapter
+                layer.forward = self._create_forward_wrapper(layer.forward, adapter)
+        else:
+            print("No encoder layers specified for adapter injection.")
 
     def _resize_token_embeddings(self):
         """Resize the token embeddings for the decoder."""
