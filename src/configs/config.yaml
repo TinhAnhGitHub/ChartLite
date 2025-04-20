@@ -7,7 +7,7 @@ general:
 
 model:
   backbone_path: google/matcha-base
-  max_length: 512
+  max_length: 2200
   max_patches: 1024
   patch_size: 16
   len_tokenizer: ???

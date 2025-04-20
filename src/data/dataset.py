@@ -123,7 +123,7 @@ class ChartDataset(Dataset):
         
         p_txt = self.processor(
             text=text,
-            truncation=True,
+            truncation=False,
             add_special_tokens=True,
             max_length=self.config['model']['max_length'],
         )
