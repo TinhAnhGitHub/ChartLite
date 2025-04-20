@@ -12,26 +12,25 @@ model:
   decoder_start_token_id: ???
   bos_token_id: ???
   max_length_generation: 1024
-  frozen_layer_range: [0, 6]  
-  adapter_layer_range: [6, 12] 
-
+  frozen_percentage: 0.2
 
 # epoch3
 
 train_params:
-  train_bs: 3
-  val_bs: 10
-  max_steps: 132921 # 146557 total samples per epoch
+  train_bs: 1
+  val_bs: 1
+  max_steps: 590215 # 110602 total samples per epoch
   grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 20 
-  val_check_interval: 10000
-  save_every_n_train_steps: 10000
-  ema_enable: false
+  val_check_interval: 30000
+  save_every_n_train_steps: 30000
+  ema_enable: true
   ema_decay: 0.9999
   ema_validate_original_weights: false
   ema_every_n_steps: 1
   ema_cpu_offload: true
+
   awp_enable: false
   awp_adv_lr: 0.005
   adv_eps: 0.001
@@ -43,17 +42,11 @@ optimizer:
   lr: 7e-5
   weight_decay: 0.01
   grad_clip_value: 1.0
-  encoder_lr: 1.0e-6 
-  decoder_lr: 1.0e-4  
-  adapter_lr: 1.0e-3  
-  encoder_weight_decay: 0.01 
-  decoder_weight_decay: 0.01 
-  adapter_weight_decay: 0.00
-
 
 learning_rate_scheduler:
   warmup_pct: 0.05
   num_cycles: 10
+
 
 
 metrics_tolerance:
@@ -61,17 +54,17 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: ./run_expr/exp
+  model_dir: ./run_expr/exp_v0_ema_d09999
 
 best_ckpt:
-  monitor: 'val/loss_avg'
-  mode: 'max'
+  monitor: 'val_loss_avg'
+  mode: 'min'
   save_top_k: 2
 
 early_stopping:
-  monitor: 'val/loss_avg'
+  monitor: 'val_loss_avg'
   patience: 10
-  mode: 'max'
+  mode: 'min'
 
 
 dataset:
@@ -82,7 +75,7 @@ dataset:
 wandb:
   enabled: true
   project: mga-dev-a1
-  run_name: adpter_half_encoder_half_test
+  run_name: exp_v4_ema_d09999
   api_key: 29662cde24039f6694273fcbc7496824462ed703
 
 images:

@@ -12,6 +12,7 @@ from tqdm import tqdm
 from models import Matcha
 from data import ChartDataset, ChartCollator
 from utils import TOKEN_MAP, JSONParseEvaluator, post_processing
+from rich import print
 
 
 def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] = None) -> Dict[str, float]:
@@ -29,7 +30,7 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     directory = config.dataset.parquet_dict
-    valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))
+    valid_files = glob.glob(os.path.join(directory, "valid*.parquet"))
     temp_dataset = ChartDataset(config, valid_files)
     processor = temp_dataset.processor
     tokenizer = processor.tokenizer
@@ -42,11 +43,11 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     val_dataset = ChartDataset(config, valid_files)
 
     collate_fn = ChartCollator(tokenizer)
-    val_loader = DataLoader(
+    test_dataloader = DataLoader(
         val_dataset,
-        batch_size=config.train_params.val_bs,
+        batch_size=13,
         collate_fn=collate_fn,
-        num_workers=config.train_params.num_workers,
+        num_workers=8,
         pin_memory=True,
         shuffle=False
     )
@@ -73,7 +74,7 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     i = 0        
     
     with torch.no_grad():
-        for batch in tqdm(val_loader, desc="Validating"):
+        for batch in tqdm(test_dataloader, desc="Testing..."):
             flattened_patches = batch["flattened_patches"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device) if "labels" in batch else None
@@ -85,27 +86,30 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
             generated_ids = model.backbone.generate(
                 flattened_patches=flattened_patches,
                 attention_mask=attention_mask,
-                # max_new_tokens=config.model.max_length_generation,
-                # do_sample=False,
-                # top_k=1,
-                # use_cache=True,
-                max_length = 1024,
-                max_new_tokens=60,            # Adjust based on expected output length
-                do_sample=False,              # Deterministic decoding with beam search
-                num_beams=4,                  # Moderate beam size for balanced quality and speed
-                use_cache=True,               # Improves speed by caching key/value pairs
-                no_repeat_ngram_size=2,       # Helps avoid repetitive phrases in outputs
+                max_new_tokens=4096,
+                do_sample=False,
+                top_k=1,
+                use_cache=True,
             )
             
             
             generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             label_texts = batch["texts"]
-    
+            print()
+            print('*'*50)
+            print(f"{generated_texts=}")
+            print(f"{loss=}")
             
             
             label_dicts = [post_processing(label_text, TOKEN_MAP) for label_text in label_texts]
             preds = [post_processing(generated_text, TOKEN_MAP)
                     for item_id, generated_text in zip(batch['id'], generated_texts)]
+            
+            print(f"{label_dicts=}")
+            print(f"{preds=}")
+            print('*'*50)
+            print()
+
 
             
             all_labels.extend(label_dicts)
@@ -114,20 +118,16 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
 
             
     
-    avg_loss = total_loss / len(val_loader)
+    print(f"{len(all_labels)=}")
+    print(f"{len(all_preds)=}")
+    avg_loss = total_loss / len(test_dataloader)
     f1_score = evaluator.cal_f1(preds=all_preds, answers=all_labels)
     accuracy = evaluator.cal_acc(preds=all_preds, answers=all_labels)
-    overall_sim = evaluator.compare_json_list(
-        all_labels, all_preds,
-        numeric_tolerance=config.metrics_tolerance.numeric_tolerance,
-        string_tolerance=config.metrics_tolerance.string_tolerance
-    )
-
-    
-    # results_file = os.path.join(config.outputs.model_dir, "validation_results.json")
-    # with open(results_file, 'w') as f:
-    #     json.dump(results, f, indent=4)
-    
+    # overall_sim = evaluator.compare_json_list(
+    #     all_labels, all_preds,
+    #     numeric_tolerance=config.metrics_tolerance.numeric_tolerance,
+    #     string_tolerance=config.metrics_tolerance.string_tolerance
+    # )
     detailed_results = []
     for  pred, generated_text, label in zip(all_preds,all_generated_text, all_labels):
         detailed_results.append({
@@ -144,8 +144,7 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     print(f"Loss: {avg_loss:.4f}")
     print(f"F1 Score: {f1_score:.4f}")
     print(f"Accuracy: {accuracy:.4f}")
-    print(f"Overall Similarity: {overall_sim:.4f}")
-    print(f"Results saved to {results_file}")
+    #print(f"Overall Similarity: {overall_sim:.4f}")
     
 
 
@@ -156,8 +155,8 @@ if __name__ == "__main__":
     # parser.add_argument("--output_dir", type=str, default=None, help="Directory to save validation results")
     
     # args = parser.parse_args()
-    config = "/mnt/c/justLearning/deepLearning/20M/Matcha/configs/official_config.yaml"
-    checkpoint = "/mnt/c/justLearning/deepLearning/20M/run_expr/exp/checkpoints/best_ckpts/best-checkpoint-31410-ema-d09999.ckpt"
-    output_dir = "/mnt/c/justLearning/deepLearning/20M/Matcha/run_expr"
+    config = "/media/tinhanhnguyen/Data1/Projects/School/Matcha/configs/base_config.yaml"
+    checkpoint = "/media/tinhanhnguyen/Data1/Projects/School/Matcha/run_expr/exp_v0_ema_d09999/checkpoints/best_ckpts/best-checkpoint-step=31387-val_loss_avg=0.04540557041764259.ckpt"
+    output_dir = "/media/tinhanhnguyen/Data1/Projects/School/Matcha/run_expr/exp_v0_ema_d09999"
     
     validate(config, checkpoint, output_dir)

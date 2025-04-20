@@ -9,6 +9,7 @@ downsampled_cleaned_chartQa_plotQa_colored/
 run_expr/
 wandb/
 lightning_logs/
+downsampled_cleaned_chartQa_plotQa_distributedAndStandardized/
 benetech-mga/
 ChartQa_clean/
 logs/
@@ -23,6 +24,7 @@ dist/
 downloads/
 eggs/
 .eggs/
+wandb/
 lib/
 lib64/
 parts/
