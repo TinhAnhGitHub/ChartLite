@@ -243,18 +243,18 @@ def run_training(cfg, ckpt_path=None):
         os.makedirs(os.path.join(checkpoint_dir, 'last_ckpts'), exist_ok=True)
     callbacks = [
         ModelCheckpoint(
-            monitor=cfg.best_ckpt.monitor,
-            mode=cfg.best_ckpt.mode,
-            save_top_k=cfg.best_ckpt.save_top_k,
-            filename="best-checkpoint-{step}-{val_loss_avg}",
+            monitor=cfg.best_ckpt.monitor,   
+            mode=cfg.best_ckpt.mode,        
+            save_top_k=1,                  
+            filename="best-checkpoint",    
             dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
+            auto_insert_metric_name=False   
         ),
         ModelCheckpoint(
-            save_last=True,
-            filename="last-checkpoint-{step}-{val_loss_avg}",
-            every_n_train_steps=cfg.train_params.save_every_n_train_steps,
-            every_n_epochs=None,
-            dirpath=os.path.join(checkpoint_dir, 'last_ckpts')
+            save_last=True,              
+            dirpath=os.path.join(checkpoint_dir, 'last_ckpts'), 
+            every_n_train_steps=None,     
+            every_n_epochs=None           
         ),
         EarlyStopping(
             monitor=cfg.early_stopping.monitor,
@@ -265,7 +265,6 @@ def run_training(cfg, ckpt_path=None):
         LearningRateMonitor(logging_interval='step'),
         Timer(),
         TQDMProgressBar(refresh_rate=cfg.train_params.train_bs * cfg.train_params.grad_accumulation),
-        
     ]
 
     if cfg.train_params.ema_enable:

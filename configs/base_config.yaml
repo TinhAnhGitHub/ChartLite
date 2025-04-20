@@ -3,7 +3,7 @@ general:
   seed: 42
 model:
   backbone_path: google/matcha-base
-  max_length: 512
+  max_length: 1024
   max_patches: 1024
   patch_size: 16
   len_tokenizer: ???
@@ -13,12 +13,10 @@ model:
   max_length_generation: 1024
   frozen_percentage: 0.2
 
-# epoch3
-
 train_params:
   train_bs: 1
   val_bs: 1
-  max_steps: 590215 # 110602 total samples per epoch
+  max_steps: 590215 
   grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 20 
@@ -53,7 +51,7 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: ./run_expr/exp_v0_ema_d09999
+  model_dir: ./run_expr/v0_ema
 
 best_ckpt:
   monitor: 'val_loss_avg'

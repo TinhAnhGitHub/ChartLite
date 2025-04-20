@@ -11,6 +11,9 @@ from zss import Node
 import numpy as np
 import pandas as pd
 from rapidfuzz.distance.Levenshtein import distance as levenshtein
+import concurrent.futures
+import _multibytecodec
+
 
 from nltk import edit_distance
 

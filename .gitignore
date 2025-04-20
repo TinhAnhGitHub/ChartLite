@@ -28,6 +28,7 @@ wandb/
 lib/
 lib64/
 parts/
+exp_v0_ema_d09999/
 sdist/
 var/
 wheels/
