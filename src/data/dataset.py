@@ -7,8 +7,20 @@ from tokenizers import AddedToken
 from torch.utils.data import Dataset
 from transformers import Pix2StructProcessor
 import io
-from utils.constant import TOKEN_MAP
 from typing import List
+import sys
+import os
+
+root_dir = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__), '../..'
+    )
+)
+print(root_dir)
+sys.path.append(root_dir)
+from src.utils.constant import TOKEN_MAP
+
+
 
 def tokenize_dict(data: dict):
     """
@@ -35,7 +47,7 @@ def tokenize_dict(data: dict):
             try:
                 if isinstance(d[0], dict) and (('x' in d[0] and 'y' in d[0]) or 'text' in d[0]):
                     return ''.join(recursive_tokenizer(item) for item in d)
-                return ' '.join(recursive_tokenizer(item) for item in d)
+                return ','.join(recursive_tokenizer(item) for item in d)
             except Exception as e:
                 ...
         else:

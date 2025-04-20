@@ -26,12 +26,25 @@ class BaseJSONEvaluator(ABC):
         _flatten(data)
         return flatten_data
 
-    @staticmethod
+    
     def normalize_dict(
+        self,
         data: Union[Dict, List, Any]
     ):
         if not data:
             return {}
+        
+        if isinstance(data, dict):
+            new_data = dict()
+            for key in sorted(data.keys(), key=lambda k: (len(k), k)):
+                
+
+        elif isinstance(data, list):
+
+        else:
+            new_data = [str(data).strip()]
+
+        
 
         
 
