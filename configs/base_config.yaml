@@ -1,7 +1,6 @@
 general:
   fast_dev_run: false
   seed: 42
-
 model:
   backbone_path: google/matcha-base
   max_length: 512
@@ -77,7 +76,6 @@ wandb:
   project: mga-dev-a1
   run_name: exp_v4_ema_d09999
   api_key: 29662cde24039f6694273fcbc7496824462ed703
-
 images:
   rsz_height: 512
   rsz_width: 512
