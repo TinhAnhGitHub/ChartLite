@@ -5,6 +5,8 @@ import random
 from collections import defaultdict
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional, Tuple, Union
+from pprint import pprint
+from joblib import Parallel, delayed
 
 
 class BaseJSONEvaluator(ABC):
@@ -37,14 +39,55 @@ class BaseJSONEvaluator(ABC):
         if isinstance(data, dict):
             new_data = dict()
             for key in sorted(data.keys(), key=lambda k: (len(k), k)):
-                
+                value = self.normalize_dict(data[key])
+                if value:
+                    if not isinstance(value,list):
+                        value=[value]
+                    new_data[key]=value
 
         elif isinstance(data, list):
-
+            if all(isinstance(item,dict) for item in data):
+                new_data = []
+                for item in data:
+                    item = self.normalize_dict(item)
+                    if item:
+                        new_data.append(item)
+            else:
+                new_data = [str(item).strip() for item in data]
         else:
             new_data = [str(data).strip()]
+        return new_data
 
+    @abstractmethod
+    def evaluate_single(
+        self, 
+        pred: dict,
+        gt: dict,
+        **kwargs
+    ) -> float:
+        pass 
+    
+    def evaluate(
+        self, 
+        preds: list[dict],
+        answers: list[dict],
+        n_jobs: int=-1,
+        **kwargs
+    )->float:
+        if not preds or not answers or len(preds) != len(answers):
+            raise ValueError("Predictions and answers must be non-empty lists of equal length")
         
+        scores = Parallel(n_jobs=n_jobs)(
+            delayed(self.evaluate_single)(pred,answers,**kwargs)
+            for pred, answer in zip(preds, answers)
+        )
+        return float(
+            sum(scores) / len(scores) if scores else 0.0
+        )
+
+
+
+
 
         
 
