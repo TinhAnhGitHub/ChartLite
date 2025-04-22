@@ -3,7 +3,7 @@ general:
   seed: 42
 model:
   backbone_path: google/matcha-base
-  max_length: 3000
+  max_length: 2100
   max_patches: 1024
   patch_size: 16
   len_tokenizer: ???
@@ -11,15 +11,15 @@ model:
   decoder_start_token_id: ???
   bos_token_id: ???
   max_length_generation: 1024
-  frozen_percentage: 0.2
+  frozen_percentage: 1
 
 train_params:
   train_bs: 1
-  val_bs: 5
+  val_bs: 30
   max_steps: 590215 
   grad_accumulation: 16
   use_fp16_mixed: true
-  num_workers: 20 
+  num_workers: 8
   val_check_interval: 30000
   save_every_n_train_steps: 30000
   ema_enable: true
@@ -41,7 +41,7 @@ optimizer:
   grad_clip_value: 1.0
 
 learning_rate_scheduler:
-  warmup_pct: 0.05
+  warmup_pct: 0.01
   num_cycles: 10
 
 
@@ -72,7 +72,7 @@ dataset:
 wandb:
   enabled: true
   project: mga-dev-a1
-  run_name: new_token_map_n_2110_max_length_token
+  run_name: freeze_all_encdoder_2.5k
   api_key: 29662cde24039f6694273fcbc7496824462ed703
 images:
   rsz_height: 512

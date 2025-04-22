@@ -10,6 +10,8 @@ import io
 from typing import List
 import sys
 import os
+from tqdm import tqdm
+import joblib
 
 root_dir = os.path.abspath(
     os.path.join(
@@ -23,17 +25,6 @@ from src.utils.constant import TOKEN_MAP
 
 
 def tokenize_dict(data: dict):
-    """
-    Convert a nested JSON object into a token sequence and count tokens dynamically using JSON tags.
-    
-    Args:
-    - data (dict): The input dictionary (e.g., JSON object).
-    
-    Returns:
-    - token_count (dict): A dictionary containing the count of each generated token.
-    - token_sequence (str): The tokenized sequence as a string.
-    """
-
     def recursive_tokenizer(d):
         if isinstance(d, dict):
             result = ""
@@ -82,10 +73,43 @@ class ChartDataset(Dataset):
         self.resize_height = config['images']['rsz_height']
         self.resize_width = config['images']['rsz_width']
         self.transform = create_train_transforms(self.resize_height, self.resize_width)
+        self.processor = get_processor(config)
         
         dfs = [pd.read_parquet(parquet_path) for parquet_path in parquet_paths]
         self.parquet_df = pd.concat(dfs, ignore_index=True)
+        '''
+        def parralell_get_token_length(df: pd.DataFrame, processor: Pix2StructProcessor) -> pd.DataFrame:
+            results = joblib.Parallel(n_jobs=8)(
+                joblib.delayed(self.calculate_token_length_from_dict)(data,processor)
+                for data in tqdm(df, desc="Getting token length")
+            )
+            
+            return results
+        # print(self.parquet_df['annotation'][0])
+        max_length = self.config['model']['max_length']
+        print(f"Max token length: {max_length}")
 
+        self.parquet_df['annotation'] = parralell_get_token_length(self.parquet_df['annotation'],self.processor)
+        # print(self.parquet_df['annotation'][0])
+        # self.parquet_df = self.parquet_df[
+        #     self.parquet_df['annotation'].apply(
+        #         lambda x: isinstance(x, dict) and 'token_length' in x and x['token_length'] <= max_length
+        #     )
+        # ].reset_index(drop=True)
+        self.parquet_df = self.parquet_df.iloc[
+            self.parquet_df['annotation'].apply(
+                lambda x: x.get('token_length', float('-inf')) if isinstance(x, dict) else float('-inf')
+            ).argsort()[::-1]  # Sort in descending order
+        ].reset_index(drop=True)
+
+        self.parquet_df['annotation'] = self.parquet_df['annotation'].apply(
+            lambda x: json.dumps({k: v for k, v in x.items() if k != "token_length"}) if isinstance(x, dict) else x
+        )
+
+        print(f"Dataframe shape after filtering: {self.parquet_df.shape}")
+        # print(self.parquet_df['annotation'][0])
+        '''
+        
         if 'id' in self.parquet_df.columns and self.parquet_df['id'].is_unique:
             self.data_ratio = int(len(self.parquet_df['id'].tolist())*config['dataset']['data_ratio'])
             self.graph_ids = self.parquet_df['id'].tolist()[:self.data_ratio]
@@ -94,7 +118,49 @@ class ChartDataset(Dataset):
             self.graph_ids = self.parquet_df.index.tolist()[:self.data_ratio]
         
         
-        self.processor = get_processor(config)
+
+    @staticmethod
+    def calculate_token_length_from_dict(data: dict, processor: Pix2StructProcessor) -> int:
+        """
+        Convert a dictionary to a string, tokenize it using the Pix2Struct tokenizer,
+        and calculate the token length.
+
+        Args:
+        - data (dict): The input dictionary (e.g., JSON object).
+        - processor (Pix2StructProcessor): The Pix2Struct processor with tokenizer.
+
+        Returns:
+        - token_length (int): The number of tokens in the tokenized sequence.
+        """
+        data = json.loads(data)
+        def tokenize_dict(d):
+            """Recursively convert a nested dictionary to a string."""
+            if isinstance(d, dict):
+                result = ""
+                for key, value in d.items():
+                    start_token = f"<{key}>"
+                    end_token = f"</{key}>"
+                    value_string = tokenize_dict(value)
+                    result += f"{start_token}{value_string}{end_token}"
+                return result
+            elif isinstance(d, list):  
+                return ' '.join(tokenize_dict(item) for item in d)
+            else:
+                if type(d) == float:
+                    return str(round(d, 2))
+                return str(d)
+            # Convert the dictionary to a string
+        text = tokenize_dict(data)
+
+        # Tokenize the string using the Pix2Struct tokenizer
+        token_ids = processor.tokenizer.encode(text, add_special_tokens=True)
+        # print(f"Tokenized text: {text}")
+        # print(f"Token IDs: {token_ids}")
+        # print(f"Token length: {len(token_ids)}")
+        # Return the token length
+        data['token_length'] = len(token_ids)
+        return data
+
 
     
     def load_image(self, graph_id: str) -> Image.Image:

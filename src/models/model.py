@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import Pix2StructConfig, Pix2StructForConditionalGeneration
-
+from peft import get_peft_model, LoraConfig, TaskType
 
 class Matcha(nn.Module):
     """
@@ -14,6 +14,23 @@ class Matcha(nn.Module):
     def __init__(self, cfg):
         super().__init__()  
         backbone_config = Pix2StructConfig.from_pretrained(cfg.model.backbone_path)
+        num_layers = 12
+
+        target_modules = []
+        for i in range(num_layers):
+            target_modules.append(f"encoder.encoder.layer.{i}.attention.query")
+            target_modules.append(f"encoder.encoder.layer.{i}.attention.key")
+            target_modules.append(f"encoder.encoder.layer.{i}.attention.value")
+
+        print(target_modules)
+        lora_config = LoraConfig(
+            task_type=TaskType.SEQ_2_SEQ_LM,
+            inference_mode=False,
+            r=8,
+            lora_alpha=32,
+            lora_dropout=0.1,
+            target_modules=target_modules,
+        )
         backbone_config.text_config.max_length = cfg.model.max_length
         backbone_config.text_config.is_decoder = True
         backbone_config.text_config.pad_token_id = cfg.model.pad_token_id
@@ -25,7 +42,14 @@ class Matcha(nn.Module):
             cfg['model']['backbone_path'],
             config=backbone_config,
         )
-
+        print("Backbone loaded successfully!")
+        # for i, layer in enumerate(self.backbone.encoder.encoder.layer):
+        #     print(f"Layer {i}:")
+        #     for name, param in layer.named_parameters():
+        #         print(f" {name}: {param.shape}")   
+        # self.backbone = get_peft_model(self.backbone, lora_config)
+        # print("LoRA applied successfully!")
+        print(self.backbone)
         print("Freezing the encoder...")
         num_hidden_layers = self.backbone.config.vision_config.num_hidden_layers
         

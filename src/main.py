@@ -12,6 +12,7 @@ import warnings
 import wandb
 import yaml
 
+from tqdm import tqdm
 import argparse
 from  omegaconf import OmegaConf
 
@@ -40,7 +41,6 @@ class ChartDataModule(LightningDataModule):
         valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))
         test_files = glob.glob(os.path.join(directory, "test*.parquet"))
        
-
 
         temp_dataset = ChartDataset(self.config, train_files)
         self.processor = temp_dataset.processor

@@ -37,6 +37,7 @@ class ChartCollator(DataCollatorWithPadding):
         decoder_features = [
             {
                 "input_ids": feature["decoder_input_ids"],
+                # "flatten_patches": feature["decoder_input_ids"],
                 "attention_mask": feature["decoder_attention_mask"]
             } for feature in features
         ]

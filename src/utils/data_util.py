@@ -4,10 +4,12 @@ import re
 
 
 def parse_data_series(content: str) -> Dict[str, List[Any]]:
+    content = re.sub(r'>\s', '>', content)
     return_data = []
     pairs = re.findall(r'<(\w+)>(.*?)</\w+>', content)
+    # print(f"{pairs=}")
     data_series = [
-        [pairs[i], pairs[i+1], pairs[i+2]] for i in range(0, len(pairs), 3)
+        [pairs[i], pairs[i+1], pairs[i+2]] for i in range(0, len(pairs)-2, 3) if pairs[i][0] == 'x' and pairs[i+1][0] == 'y' and pairs[i+2][0] == 'colors'
     ]
     for item_series  in data_series:
         x_item = item_series[0]
@@ -25,16 +27,20 @@ def parse_data_series(content: str) -> Dict[str, List[Any]]:
 
 
 def parse_text_display(content: str) -> List[Dict[str, Any]]:
-    print(f"{content=}")
+
+    content = re.sub(r'>\s', '>', content)
+    # print(f"{content=}")
     elements = []
     polygons = re.findall(r'<polygon>(.*?)</polygon>', content)
     texts = re.findall(r'<text>(.*?)</text>', content)
     roles = re.findall(r'<role>(.*?)</role>',content)
     colors = re.findall(r'<colors>(.*?)</colors>', content)
+    # print(f"{polygons=}")
+    # print(f"{texts=}")
     elements = []
     for polygon, text, role, color in zip(polygons, texts, roles, colors):
         text_chart = text.split(',') if role in ['x_axis','y_axis'] else text
-        print(f"{text_chart=}")
+        # print(f"{text_chart=}")
         colors_chart = color.split(',') if ',' in color else color
         element = {
             'text': text_chart,
@@ -51,6 +57,7 @@ def parse_text_display(content: str) -> List[Dict[str, Any]]:
 
 
 def extract_content_from_sequence(content: str, bos: str, eos: str) -> str:
+    content = re.sub(r'>\s', '>', content)
     content = content.split(bos)[1]
     content = content.split(eos)[0]
     return content
@@ -60,6 +67,7 @@ def detect_nested_tags(content: str, token_map: Dict[str, List[str]]) -> List[st
     nested_tags = []
     for token, tags in token_map.items():
         start_tag = tags[0].replace('<', r'\<').replace('>', r'\>')
+        token = token
         if re.search(start_tag, content):
             nested_tags.append(token)
     return nested_tags

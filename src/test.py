@@ -9,12 +9,21 @@ import yaml
 import json
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
 from models import Matcha
 from data import ChartDataset, ChartCollator
-from utils import TOKEN_MAP, JSONParseEvaluator, post_processing
 from rich import print
 import pprint 
+
+import sys
+import os
+
+root_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..')
+)
+
+
+from src.utils.metric_utils_fast import F1ScoreEvaluator,TEDAccuracyEvaluator
+from src.utils import TOKEN_MAP, post_processing
 
 
 def calculate_token_length(text, tokenizer):
@@ -36,7 +45,7 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     directory = config.dataset.parquet_dict
-    valid_files = glob.glob(os.path.join(directory, "test*.parquet"))
+    valid_files = glob.glob(os.path.join(directory, "valid*.parquet"))
     temp_dataset = ChartDataset(config, valid_files)
     processor = temp_dataset.processor
     tokenizer = processor.tokenizer
@@ -51,7 +60,7 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     collate_fn = ChartCollator(tokenizer)
     test_dataloader = DataLoader(
         val_dataset,
-        batch_size=1,
+        batch_size=6,
         collate_fn=collate_fn,
         num_workers=8,
         pin_memory=True,
@@ -62,18 +71,26 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     if 'state_dict' in checkpoint:
-        state_dict = {k.replace('model.', ''): v for k, v in checkpoint['state_dict'].items() if 'model.' in k}
+        state_dict = {
+            k.removeprefix('model.')
+                .replace('base_encoder', 'encoder')
+                    .replace('.base_model.model.','.')
+                        .replace('.base_layer.','.')
+                            : v 
+            for k, v in checkpoint['state_dict'].items()
+            if k.startswith('model.') and not 'lora' in k
+        }
         model.load_state_dict(state_dict)
     else:
         model.load_state_dict(checkpoint)
-    
     model = model.to(device)
     model.eval()
 
     #print(model.backbone.config)
 
 
-    evaluator = JSONParseEvaluator()
+    evaluator_f1 = F1ScoreEvaluator()
+    evaluator_ted = F1ScoreEvaluator()
     all_label_texts = []
     
     total_loss = 0.0
@@ -85,7 +102,11 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     i = 0        
     
     with torch.no_grad():
+        j= 0
         for batch in tqdm(test_dataloader, desc="Testing..."):
+            # if j < 383:
+            #     j += 1
+            #     continue
             flattened_patches = batch["flattened_patches"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device) if "labels" in batch else None
@@ -99,41 +120,48 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
             generated_ids = model.backbone.generate(
                 flattened_patches=flattened_patches,
                 attention_mask=attention_mask,  
-                max_new_tokens=512,
+                max_new_tokens=2100,
                 do_sample=False,
-                use_cache=False 
+                use_cache=True, 
             )
                         
             
-            generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=False)
+            generated_texts = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             label_texts = batch["texts"]
-            label_token_lengths = [calculate_token_length(label_text, tokenizer) for label_text in label_texts]
-            if label_token_lengths[0] > 512:
-                continue
+            # label_token_lengths = [calculate_token_length(label_text, tokenizer) for label_text in label_texts]
+            # print(f"{label_token_lengths=}")
+            # if label_token_lengths[0] > 512:
+            #     continue
 
-            
-            
-            print()
-            print('*'*50)
-            print(f"{label_token_lengths=}")
-            print()
-            print(f"{generated_texts=}")
-            print()
-            print(f"{label_texts=}")
-            print()
-            print(f"{loss=}")
-            print()
+                
+            # print()
+            # print('*'*50)
+            # print()
+            # print(f"{generated_texts=}")
+            # print()
+            # print(f"{label_texts=}")
+            # print()
+            # print(f"{loss=}")
+            # print()
             
             label_dicts = [post_processing(label_text, TOKEN_MAP) for label_text in label_texts]
             preds = [post_processing(generated_text, TOKEN_MAP)
                     for item_id, generated_text in zip(batch['id'], generated_texts)]
             
-            print(f"{label_dicts=}")
-            print()
-            print(f"{preds=}")
-            print()
-            print('*'*50)
-            print()
+            # f1_score = evaluator_f1.evaluate(preds=preds, answers=label_dicts)
+            # accuracy = evaluator_ted.evaluate(preds=preds, answers=label_dicts)
+            
+            # print(f"{label_dicts=}")
+            # print()
+            # print(f"{preds=}")
+            # print('*'*50)
+            # print()
+            # print(f"{f1_score=}")
+            # print()
+            # print(f"{accuracy=}")
+            # print()
+            # print('*'*50)
+            # print()
 
 
             
@@ -142,8 +170,8 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
             all_generated_text.extend(generated_texts)
             all_label_texts.append(label_texts)
             loss_list.append(loss.item())
-            if len(all_generated_text) > 5:
-                break
+            # if len(all_generated_text) > 5:
+            #     break
             
 
             
@@ -163,8 +191,8 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
 
     
     
-    f1_score = evaluator.cal_f1(preds=all_preds, answers=all_labels)
-    accuracy = evaluator.cal_acc(preds=all_preds, answers=all_labels)
+    f1_score = evaluator_f1.evaluate(preds=all_preds, answers=all_labels)
+    accuracy = evaluator_ted.evaluate(preds=all_preds, answers=all_labels)
     detailed_results = []
     for  pred, generated_text, label in zip(all_preds,all_generated_text, all_labels):
         detailed_results.append({
@@ -202,10 +230,11 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
     print(f"Done")
     
     
+    
 
 
 if __name__ == "__main__":
-    config = "/media/tinhanhnguyen/Data1/Projects/School/Matcha/configs/base_config.yaml"
-    checkpoint = "/media/tinhanhnguyen/Data1/Projects/School/Matcha/exp_v0_ema_d09999/checkpoints/best_ckpts/best-checkpoint-step=31387-val_loss_avg=0.04540557041764259.ckpt"
-    output_dir = "/media/tinhanhnguyen/Data1/Projects/School/Matcha/exp_v0_ema_d09999"
+    config = "./Matcha/configs/base_config.yaml"
+    checkpoint = "./run_expr/v0_ema/checkpoints/best_ckpts/best-checkpoint-v1.ckpt"
+    output_dir = "./run_expr/exp_v0_ema_d09999"
     validate(config, checkpoint, output_dir)    
