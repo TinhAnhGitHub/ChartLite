@@ -90,7 +90,7 @@ def validate(config_path: str, checkpoint_path: str, output_dir: Optional[str] =
 
 
     evaluator_f1 = F1ScoreEvaluator()
-    evaluator_ted = F1ScoreEvaluator()
+    evaluator_ted = TEDAccuracyEvaluator()
     all_label_texts = []
     
     total_loss = 0.0

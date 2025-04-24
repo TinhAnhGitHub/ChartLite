@@ -9,7 +9,7 @@ def parse_data_series(content: str) -> Dict[str, List[Any]]:
     pairs = re.findall(r'<(\w+)>(.*?)</\w+>', content)
     # print(f"{pairs=}")
     data_series = [
-        [pairs[i], pairs[i+1], pairs[i+2]] for i in range(0, len(pairs)-2, 3) if pairs[i][0] == 'x' and pairs[i+1][0] == 'y' and pairs[i+2][0] == 'colors'
+        [pairs[i], pairs[i+1], pairs[i+2]] for i in range(0, len(pairs)-2, 3) if pairs[i][0] == 'x' and pairs[i+1][0] == 'y' and pairs[i+2][0] == 'color'
     ]
     for item_series  in data_series:
         x_item = item_series[0]
