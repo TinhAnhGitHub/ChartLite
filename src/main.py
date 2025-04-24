@@ -2,12 +2,10 @@ import os
 import glob
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
-from transformers import get_cosine_schedule_with_warmup, GenerationConfig
+from transformers import get_cosine_schedule_with_warmup, GenerationConfig,Adafactor 
 from torch.optim import AdamW
-
 from lightning.pytorch import LightningDataModule, LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor, Timer, TQDMProgressBar
-
 import warnings
 import wandb
 import yaml
@@ -15,13 +13,13 @@ import yaml
 from tqdm import tqdm
 import argparse
 from  omegaconf import OmegaConf
-
 from utils import TOKEN_MAP, JSONParseEvaluator, AverageMeter, EMA, AWPCallback
 from data import ChartCollator, ChartDataset
 from models import Matcha
 warnings.filterwarnings("ignore")
 BOS_TOKEN = TOKEN_MAP["bos_token"]
 torch.set_float32_matmul_precision('high')
+
 
 
 
@@ -51,8 +49,8 @@ class ChartDataModule(LightningDataModule):
         self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
 
         self.train_dataset = ChartDataset(self.config, train_files)
-        self.val_dataset = ChartDataset(self.config, test_files)
-        self.test_dataset = ChartDataset(self.config, valid_files)
+        self.val_dataset = ChartDataset(self.config, valid_files)
+        self.test_dataset = ChartDataset(self.config, test_files)
         print(f"{len(self.train_dataset)=}")
         print(f"{len(self.val_dataset)=}")
         print(f"{len(self.test_dataset)=}")
@@ -209,11 +207,10 @@ class MatchaLightningModule(LightningModule):
             }, step=current_step)
 
     def configure_optimizers(self):
-        optimizer = AdamW(
-            params=self.model.parameters(),
-            lr = float(self.config.optimizer.lr),
-            weight_decay= float(self.config.optimizer.weight_decay)
-        )
+        optimizer = Adafactor(self.parameters(), scale_parameter=False, relative_step=False, lr = float(self.config.optimizer.lr), weight_decay= float(self.config.optimizer.weight_decay))
+
+
+
         max_steps = self.config.train_params.max_steps
         num_warmup_steps = int(self.config.learning_rate_scheduler.warmup_pct * max_steps)
         num_cycles = self.config.learning_rate_scheduler.num_cycles
@@ -318,7 +315,6 @@ def run_training(cfg, ckpt_path=None):
         num_sanity_val_steps=0,
         enable_checkpointing=True,
         logger=True,
-        
     )
 
     trainer.fit(model, datamodule=data_module, ckpt_path=ckpt_path)

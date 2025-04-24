@@ -11,12 +11,15 @@ model:
   decoder_start_token_id: ???
   bos_token_id: ???
   max_length_generation: 1024
-  frozen_percentage: 1
+  frozen_layer_range: [0,6]
+  adapter_layer_range: [0,6]
+
+
 
 train_params:
   train_bs: 1
   val_bs: 1
-  max_steps: 590215 
+  max_steps: 586670
   grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 8
@@ -36,22 +39,24 @@ train_params:
 
 
 optimizer:
-  lr: 7e-5
+  lr: 9e-5
   weight_decay: 0.01
   grad_clip_value: 1.0
 
 learning_rate_scheduler:
+  warmup_pct: 0.01
+  num_cycles: 15
   warmup_pct: 0.01
   num_cycles: 10
 
 
 
 metrics_tolerance:
-  numeric_tolerance: 0.05
+  numeric_tolerance: 0.001
   string_tolerance: 2
 
 outputs:
-  model_dir: ./run_expr/v0_ema
+  model_dir: ./run_expr/exp_v0_freeze_half_encoder_half_adapter
 
 best_ckpt:
   monitor: 'val_loss_avg'
@@ -65,14 +70,14 @@ early_stopping:
 
 
 dataset:
-  parquet_dict: ./downsampled_cleaned_chartQa_plotQa_distributedAndStandardized/data
+  parquet_dict: ./downsampled_cleaned_chartQa_plotQa_distributedAndStandardized_V2/data
   data_ratio: 1.0
 
 
 wandb:
   enabled: true
   project: mga-dev-a1
-  run_name: freeze_all_encdoder_2.5k
+  run_name: exp_v0_freeze_half_encoder_half_adapter
   api_key: 29662cde24039f6694273fcbc7496824462ed703
 images:
   rsz_height: 512
