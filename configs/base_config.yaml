@@ -15,7 +15,7 @@ model:
 
 train_params:
   train_bs: 1
-  val_bs: 30
+  val_bs: 1
   max_steps: 590215 
   grad_accumulation: 16
   use_fp16_mixed: true
