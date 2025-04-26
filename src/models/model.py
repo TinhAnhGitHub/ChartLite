@@ -46,6 +46,9 @@ def build_model(cfg) -> BaseChartExtractionModel:
     elif model_type == 'unichart':
         from src.models.unichart.unichart_model import UniChart
         return UniChart(cfg)
+    elif model_type=='donut':
+        from src.models.donut.donut_model import Donut
+        return Donut(cfg)
     else:
         raise ValueError(f"Unknown model type: {cfg.model.type}")
 
