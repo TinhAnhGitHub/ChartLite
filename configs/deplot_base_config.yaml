@@ -1,0 +1,89 @@
+general:
+  fast_dev_run: false
+  seed: 42
+model:
+  type: deplot
+  backbone_path: google/deplot
+  max_length: 2100
+  max_patches: 1024
+  patch_size: 16
+  len_tokenizer: ???
+  pad_token_id: ???
+  decoder_start_token_id: ???
+  bos_token_id: ???
+  max_length_generation: 2100
+  frozen_layer_range: [0,12]
+  adapter_layer_range: [0,0]
+
+
+
+train_params:
+  train_bs: 1
+  val_bs: 1
+  max_steps: 659700
+  grad_accumulation: 16
+  use_fp16_mixed: true
+  num_workers: 8
+  val_check_interval: 50000
+  save_every_n_train_steps: 50000
+  ema_enable: false
+  ema_decay: 0.9999
+  ema_validate_original_weights: false
+  ema_every_n_steps: 1
+  ema_cpu_offload: true
+
+  awp_enable: false
+  awp_adv_lr: 0.005
+  adv_eps: 0.001
+  apply_every: 2
+
+
+
+optimizer:
+  lr: 7e-5
+  weight_decay: 0.01
+  grad_clip_value: 1.0
+
+learning_rate_scheduler:
+  warmup_pct: 0.01
+  num_cycles: 10
+
+
+
+metrics_tolerance:
+  numeric_tolerance: 0.001
+  string_tolerance: 2
+
+outputs:
+  model_dir: ./run_expr/matcha_base_original
+
+best_ckpt:
+  monitor: 'val_loss_avg'
+  mode: 'min'
+  save_top_k: 2
+
+early_stopping:
+  monitor: 'val_loss_avg'
+  patience: 10
+  mode: 'min'
+
+dataset:
+  parquet_dict: ./downsampled_cleaned_chartQa_plotQa_distributedAndStandardized/data
+  data_ratio: 1.0
+
+
+wandb:
+  enabled: false
+  project: mga-dev-a1
+  run_name: exp_v0_freeze_half_encoder_half_adapter
+  api_key: 29662cde24039f6694273fcbc7496824462ed703
+images:
+  rsz_height: 512
+  rsz_width: 512
+
+
+
+vpn:
+  nodes: 2
+  devices : 1
+  name: wg0

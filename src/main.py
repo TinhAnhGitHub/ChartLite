@@ -9,123 +9,90 @@ from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, Learning
 import warnings
 import wandb
 import yaml
-
+from typing import Any, Optional
 from tqdm import tqdm
 import argparse
 from  omegaconf import OmegaConf
 from utils import TOKEN_MAP, JSONParseEvaluator, AverageMeter, EMA, AWPCallback
 from data import ChartCollator, ChartDataset
-from models import Matcha
+from models.model import build_model
+
+
 warnings.filterwarnings("ignore")
 BOS_TOKEN = TOKEN_MAP["bos_token"]
 torch.set_float32_matmul_precision('high')
 
-
-
-
 class ChartDataModule(LightningDataModule):
-    def __init__(self, config):
+    def __init__(
+        self,
+        config: Any,
+        model: Any,              
+    ):
         super().__init__()
         self.config = config
-        self.processor = None
-        self.tokenizer = None
+        self.model = model
+        self.tokenizer = model.tokenizer
         self.train_dataset = None
         self.val_dataset = None
-        self.val_size = None
-    
-    def setup(self, stage=None):
+        self.test_dataset = None
+        
+
+    def setup(self, stage: Optional[str] = None) -> None:
         directory = self.config.dataset.parquet_dict
         train_files = glob.glob(os.path.join(directory, "train*.parquet"))
         valid_files = glob.glob(os.path.join(directory, "validation*.parquet"))
         test_files = glob.glob(os.path.join(directory, "test*.parquet"))
-       
 
-        temp_dataset = ChartDataset(self.config, train_files)
-        self.processor = temp_dataset.processor
-        self.tokenizer = self.processor.tokenizer
-        self.config.model.len_tokenizer = len(self.tokenizer)  
-        self.config.model.pad_token_id = self.tokenizer.pad_token_id  
-        self.config.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
-        self.config.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(BOS_TOKEN)[0]  
+
 
         self.train_dataset = ChartDataset(self.config, train_files)
         self.val_dataset = ChartDataset(self.config, valid_files)
         self.test_dataset = ChartDataset(self.config, test_files)
-        print(f"{len(self.train_dataset)=}")
-        print(f"{len(self.val_dataset)=}")
-        print(f"{len(self.test_dataset)=}")
+        
 
-    def train_dataloader(self):
-        collate_fn = ChartCollator(self.tokenizer)
-
-        train_sampler = DistributedSampler(
-            self.train_dataset,
-            num_replicas=self.trainer.world_size,  
-            rank=self.trainer.global_rank,         
-            shuffle=True                           
-        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
-
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.config.train_params.train_bs,
-            collate_fn=collate_fn,
-            num_workers=self.config.train_params.num_workers,
-            pin_memory=True,
-            shuffle=(train_sampler is None),       
-            sampler=train_sampler,                 
-            persistent_workers=True
+    def _make_loader(self, dataset, batch_size, shuffle) -> DataLoader:
+        collate_fn = ChartCollator(
+            preprocess_fn=self.model.preprocess,
+            tokenizer=self.tokenizer,
+            padding=True,
+            max_length=self.config.model.max_length,
+            pad_to_multiple_of=None,
+            return_tensors="pt"
         )
-
-    def val_dataloader(self):
-        collate_fn = ChartCollator(self.tokenizer)
-        val_sampler = DistributedSampler(
-            self.val_dataset,
+        sampler = DistributedSampler(
+            dataset,
             num_replicas=self.trainer.world_size,
             rank=self.trainer.global_rank,
-            shuffle=False                          
-        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+            shuffle=shuffle
+        ) if (self.trainer.num_devices > 1 or self.trainer.num_nodes > 1) else None
+
         return DataLoader(
-            self.val_dataset,
-            batch_size=self.config.train_params.val_bs,
+            dataset,
+            batch_size=batch_size,
             collate_fn=collate_fn,
             num_workers=self.config.train_params.num_workers,
             pin_memory=True,
-            shuffle=False,                         
-            sampler=val_sampler,                  
+            shuffle=(sampler is None and shuffle),
+            sampler=sampler,
             persistent_workers=True
         )
+
+    def train_dataloader(self) -> DataLoader:
+        return self._make_loader(self.train_dataset, self.config.train_params.train_bs, shuffle=True)
+
+    def val_dataloader(self) -> DataLoader:
+        return self._make_loader(self.val_dataset, self.config.train_params.val_bs, shuffle=False)
+
     
-    def test_dataloader(self):
-        collate_fn = ChartCollator(self.tokenizer)
-        test_sampler = DistributedSampler(
-            self.test_dataset,
-            num_replicas=self.trainer.world_size,
-            rank=self.trainer.global_rank,
-            shuffle=False                          
-        ) if self.trainer.num_devices > 1 or self.trainer.num_nodes > 1 else None
+    
 
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.config.train_params.val_bs,
-            collate_fn=collate_fn,
-            num_workers=self.config.train_params.num_workers,
-            pin_memory=True,
-            shuffle=False,                         
-            sampler=test_sampler,                  
-            persistent_workers=True
-        )
-class MatchaLightningModule(LightningModule):
-    def __init__(self, config, tokenizer):
+
+class ModelLightning(LightningModule):
+    def __init__(self, config, model):
         super().__init__()
         
         self.config = config
-        self.tokenizer = tokenizer
-        self.model = Matcha(config)
-
-        eos_token_id = tokenizer.eos_token_id
-        pad_token_id = tokenizer.pad_token_id
-        if eos_token_id is None or pad_token_id is None:
-            raise ValueError("EOS or PAD token ID is None. Ensure tokenizer has them defined.")
+        self.model = model
 
 
         self.train_metrics = {
@@ -139,15 +106,13 @@ class MatchaLightningModule(LightningModule):
         self.eval_json = JSONParseEvaluator()
         self.save_hyperparameters()
     
-    def forward(self, flattened_patches, attention_mask, labels=None):
-        loss, outputs = self.model(flattened_patches, attention_mask, labels)
+    def forward(self, batch):
+        loss, outputs = self.model(batch)
         return loss, outputs
     
     def training_step(self, batch, batch_idx):
         loss, _ = self(
-            flattened_patches=batch["flattened_patches"],
-            attention_mask=batch["attention_mask"],
-            labels=batch["labels"]
+            batch
         )
         loss_item = loss.item()
         self.train_metrics['loss'].update(loss_item, 1)
@@ -180,11 +145,7 @@ class MatchaLightningModule(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         with torch.no_grad():
-            loss, _ = self(
-                flattened_patches=batch["flattened_patches"],
-                attention_mask=batch["attention_mask"],
-                labels=batch["labels"]
-            )
+            loss, _ = self(batch)
             self.val_metrics["loss"].update(loss.item(), 1)
         self.log('val_loss', loss.item(), on_step=True, prog_bar=True)
         return loss
@@ -207,9 +168,7 @@ class MatchaLightningModule(LightningModule):
             }, step=current_step)
 
     def configure_optimizers(self):
-        optimizer = Adafactor(self.parameters(), scale_parameter=False, relative_step=False, lr = float(self.config.optimizer.lr), weight_decay= float(self.config.optimizer.weight_decay))
-
-
+        optimizer = Adafactor(self.model.parameters(), scale_parameter=False, relative_step=False, lr = float(self.config.optimizer.lr), weight_decay= float(self.config.optimizer.weight_decay))
 
         max_steps = self.config.train_params.max_steps
         num_warmup_steps = int(self.config.learning_rate_scheduler.warmup_pct * max_steps)
@@ -232,6 +191,7 @@ class MatchaLightningModule(LightningModule):
 
 
 def run_training(cfg, ckpt_path=None):
+
     seed_everything(cfg.general.seed)
     checkpoint_dir = os.path.join(cfg.outputs.model_dir, "checkpoints")
     if not os.path.exists(checkpoint_dir):
@@ -285,12 +245,16 @@ def run_training(cfg, ckpt_path=None):
                 apply_every=int(cfg.train_params.apply_every)
             )
         )
-    print("Callbacks being passed to Trainer:", [type(cb).__name__ for cb in callbacks])
-    data_module = ChartDataModule(cfg)
+    
+    chart_model = build_model(cfg)
+    
+    data_module = ChartDataModule(cfg, chart_model)
     data_module.setup()
-    tokenizer = data_module.tokenizer
-    cfg.val_size = data_module.val_size
-    model = MatchaLightningModule(cfg, tokenizer)
+    
+
+    model = ModelLightning(cfg, chart_model)
+
+
 
     if cfg.wandb.enabled:
         wandb.init(
@@ -304,7 +268,6 @@ def run_training(cfg, ckpt_path=None):
         max_steps=cfg.train_params.max_steps,
         max_epochs=None,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=torch.cuda.device_count(),
         strategy="ddp" if torch.cuda.device_count() > 1 else "auto",
         callbacks=callbacks,
         gradient_clip_val=cfg.optimizer.grad_clip_value,
@@ -315,6 +278,7 @@ def run_training(cfg, ckpt_path=None):
         num_sanity_val_steps=0,
         enable_checkpointing=True,
         logger=True,
+        devices=cfg.vpn.devices if cfg.get('vpn') else torch.cuda.device_count(),
     )
 
     trainer.fit(model, datamodule=data_module, ckpt_path=ckpt_path)
@@ -328,8 +292,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with open(args.config, "r") as f:
         yaml_config = yaml.safe_load(f)
-    
     config = OmegaConf.create(yaml_config)
-
     os.environ["WANDB_API_KEY"] = config.wandb.api_key if config.wandb.api_key else None
     run_training(cfg=config, ckpt_path=args.checkpoint)

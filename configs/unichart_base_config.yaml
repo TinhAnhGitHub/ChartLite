@@ -2,7 +2,8 @@ general:
   fast_dev_run: false
   seed: 42
 model:
-  backbone_path: google/matcha-base
+  type: unichart
+  backbone_path: ahmed-masry/unichart-base-960
   max_length: 2100
   max_patches: 1024
   patch_size: 16
@@ -11,21 +12,21 @@ model:
   decoder_start_token_id: ???
   bos_token_id: ???
   max_length_generation: 1024
-  frozen_layer_range: [0,6]
-  adapter_layer_range: [0,6]
+  frozen_layer_range: [0,4]
+  adapter_layer_range: [0,0]
 
 
 
 train_params:
   train_bs: 1
   val_bs: 1
-  max_steps: 586670
+  max_steps: 659700
   grad_accumulation: 16
   use_fp16_mixed: true
   num_workers: 8
-  val_check_interval: 30000
-  save_every_n_train_steps: 30000
-  ema_enable: true
+  val_check_interval: 50000
+  save_every_n_train_steps: 50000
+  ema_enable: false
   ema_decay: 0.9999
   ema_validate_original_weights: false
   ema_every_n_steps: 1
@@ -39,15 +40,13 @@ train_params:
 
 
 optimizer:
-  lr: 9e-5
+  lr: 7e-5
   weight_decay: 0.01
   grad_clip_value: 1.0
 
 learning_rate_scheduler:
   warmup_pct: 0.01
   num_cycles: 15
-  warmup_pct: 0.01
-  num_cycles: 10
 
 
 
@@ -56,7 +55,7 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: ./run_expr/exp_v0_freeze_half_encoder_half_adapter
+  model_dir: ./run_expr/matcha_base_original
 
 best_ckpt:
   monitor: 'val_loss_avg'
@@ -68,14 +67,13 @@ early_stopping:
   patience: 10
   mode: 'min'
 
-
 dataset:
-  parquet_dict: ./downsampled_cleaned_chartQa_plotQa_distributedAndStandardized_V2/data
+  parquet_dict: ./downsampled_cleaned_chartQa_plotQa_distributedAndStandardized/data
   data_ratio: 1.0
 
 
 wandb:
-  enabled: true
+  enabled: false
   project: mga-dev-a1
   run_name: exp_v0_freeze_half_encoder_half_adapter
   api_key: 29662cde24039f6694273fcbc7496824462ed703
@@ -85,7 +83,7 @@ images:
 
 
 
-# vpn:
-#   nodes: 2
-#   devices : 2
-#   name: matcha_t
+vpn:
+  nodes: 2
+  devices : 1
+  name: wg0

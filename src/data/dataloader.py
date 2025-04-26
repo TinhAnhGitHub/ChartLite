@@ -1,72 +1,65 @@
-from dataclasses import dataclass
 import numpy as np
 import torch
-from transformers import DataCollatorWithPadding
+from typing import Callable, Any, Dict, List, Optional
 
-
-
-@dataclass
-class ChartCollator(DataCollatorWithPadding):
+class ChartCollator:
     """
-    data collector for mga task
+    Data collator that uses the model's own preprocess function to prepare inputs.
+    Handles both encoder patches and decoder token sequences.
     """
+    def __init__(
+        self,
+        preprocess_fn: Callable[[Any, Optional[str]], Dict[str, torch.Tensor]],
+        tokenizer: Any,
+        padding: bool = True,
+        max_length: Optional[int] = None,
+        pad_to_multiple_of: Optional[int] = None,
+        return_tensors: str = "pt"
+    ):
+        self.preprocess_fn = preprocess_fn
+        self.tokenizer = tokenizer
+        self.padding = padding
+        self.max_length = max_length
+        self.pad_to_multiple_of = pad_to_multiple_of
+        self.return_tensors = return_tensors
 
-    tokenizer = None
-    padding = True
-    max_length = None
-    pad_to_multiple_of = None
-    return_tensors = "pt"
-
-    def __call__(self, features):
-        batch = dict()
-        batch["id"] = [feature["id"] for feature in features]
-        batch["chart_type"] = [feature["chart_type"] for feature in features]
-        batch["texts"] = [feature["text"] for feature in features]
-        batch["images"] = [feature["image"] for feature in features]
-
-
-        flattened_patches = [feature["flattened_patches"] for feature in features]
-        attention_mask = [feature["attention_mask"] for feature in features]
-
-        flattened_patches = np.concatenate(flattened_patches, axis=0)
-        attention_mask = np.concatenate(attention_mask, axis=0)
-
-        batch["flattened_patches"] = flattened_patches
-        batch["attention_mask"] = attention_mask
-
-        decoder_features = [
-            {
-                "input_ids": feature["decoder_input_ids"],
-                # "flatten_patches": feature["decoder_input_ids"],
-                "attention_mask": feature["decoder_attention_mask"]
-            } for feature in features
+    def __call__(
+        self,
+        features: List[Dict[str, Any]]
+    ) -> Dict[str, torch.Tensor]:
+        processed = [
+            self.preprocess_fn(image=f["image"], text=f.get("text", None))
+            for f in features
         ]
 
-        decoder_batch = self.tokenizer.pad(
-            decoder_features,
-            padding=self.padding,
-            max_length=self.max_length,
-            pad_to_multiple_of=self.pad_to_multiple_of,
-            return_tensors=None
-        )
-
-        batch["decoder_input_ids"] = decoder_batch["input_ids"]
-        batch["decoder_attention_mask"] = decoder_batch["attention_mask"]
-
-        pad_token_id = self.tokenizer.pad_token_id
-        labels = []
-        for ex_labels in batch["decoder_input_ids"]:
-            tmp = [l if l != pad_token_id else -100 for l in ex_labels]
-            labels.append(tmp)
-        batch["labels"] = labels
-
-        tensor_keys = ["flattened_patches", "attention_mask", "decoder_input_ids", "decoder_attention_mask", "labels"]
-        for key in tensor_keys:
-            if key != "flattened_patches":
-                batch[key] = torch.tensor(batch[key], dtype=torch.int64)
+        batch: Dict[str, torch.Tensor] = {}
+        for key in processed[0].keys():
+            vals = [p[key] for p in processed]
+            if isinstance(vals[0], torch.Tensor):
+                batch[key] = torch.stack(vals, dim=0)
+            elif isinstance(vals[0], np.ndarray):
+                batch[key] = torch.tensor(np.stack(vals, axis=0))
             else:
-                batch[key] = torch.tensor(batch[key], dtype=torch.float32)
+                if key !='image' and key !="text":
+                    batch[key]=torch.tensor(vals, dtype=torch.int64)
+
+        if "decoder_input_ids" in batch:
+            pad_inputs = {
+                "input_ids": batch["decoder_input_ids"],
+                "attention_mask": batch.get("decoder_attention_mask")
+            }
+            decoder_batch = self.tokenizer.pad(
+                pad_inputs,
+                padding=self.padding,
+                max_length=self.max_length,
+                pad_to_multiple_of=self.pad_to_multiple_of,
+                return_tensors=self.return_tensors
+            )
+            batch["decoder_input_ids"] = decoder_batch["input_ids"]
+            batch["decoder_attention_mask"] = decoder_batch["attention_mask"]
+            labels = decoder_batch["input_ids"].clone()
+            labels[labels == self.tokenizer.pad_token_id] = -100
+            batch["labels"] = labels
+
 
         return batch
-
-
