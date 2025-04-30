@@ -1,7 +1,8 @@
 import torch
-from transformers import VisionEncoderDecoderModel, DonutProcessor, VisionEncoderDecoderConfig
+from transformers import VisionEncoderDecoderModel, DonutProcessor
 from tokenizers import AddedToken
 import numpy as np
+from transformers.models.mbart.modeling_mbart import MBartLearnedPositionalEmbedding
 from typing import Dict, Any
 
 import os
@@ -24,7 +25,9 @@ def get_processor(config: dict):
         'width': 512
     }
     new_tokens = sorted(tok for this_tok in TOKEN_MAP.values() for tok in this_tok)
-    processor.tokenizer.add_tokens([AddedToken(tok, lstrip=False, rstrip=False) for tok in new_tokens])
+    existing_tokens = set(processor.tokenizer.get_vocab().keys())
+    tokens_to_add = [AddedToken(tok, lstrip=False, rstrip=False) for tok in new_tokens if tok not in existing_tokens]
+    processor.tokenizer.add_tokens(tokens_to_add)
     return processor
 
 
@@ -35,11 +38,12 @@ class Donut(BaseChartExtractionModel, torch.nn.Module):
     def __init__(self, cfg):
         torch.nn.Module.__init__(self)
         BaseChartExtractionModel.__init__(self)
-        self.cfg=cfg
+        self.cfg = cfg
         self.processor = get_processor(self.cfg)
         self.tokenizer = self.processor.tokenizer
 
-        self.cfg.model.len_tokenizer = len(self.tokenizer)
+        tokenizer_length = len(self.tokenizer)
+        self.cfg.model.len_tokenizer = tokenizer_length
         self.cfg.model.pad_token_id = self.tokenizer.pad_token_id
         self.cfg.model.decoder_start_token_id = self.tokenizer.convert_tokens_to_ids(TOKEN_MAP['bos_token'])[0]
         self.cfg.model.bos_token_id = self.tokenizer.convert_tokens_to_ids(TOKEN_MAP['bos_token'])[0]
@@ -50,10 +54,32 @@ class Donut(BaseChartExtractionModel, torch.nn.Module):
         )
         self._create_backbone_config(cfg)
         self._freeze_encoder_layers()
-        self.backbone.decoder.resize_token_embeddings(self.cfg.model.len_tokenizer)
 
-        self.backbone.config.vocab_size = self.backbone.config.decoder.vocab_size
+        real_pos_module = (
+            self.backbone.decoder.model.decoder.embed_positions
+        )
+        old_num, emb_dim = real_pos_module.num_embeddings, real_pos_module.embedding_dim
+        offset = getattr(real_pos_module,'offset',2)
+        new_max_pos = cfg.model.max_length
+        if new_max_pos + offset > old_num:
+            new_num = new_max_pos + offset
+            new_embed = MBartLearnedPositionalEmbedding(new_max_pos, emb_dim)
+            new_embed.weight.data[:old_num] = real_pos_module.weight.data
+            self.backbone.decoder.model.decoder.embed_positions = new_embed
+            self.backbone.config.decoder_max_length       = new_max_pos
+            self.backbone.decoder.config.max_length      = new_max_pos
 
+            assert (
+                self.backbone.decoder.model.decoder.embed_positions.num_embeddings
+                >= new_max_pos + offset
+            ), "positional embedding resize failed"
+
+            print(f"🔧 Resized decoder positional embeddings: {old_num} → {new_num}")
+
+        self.backbone.decoder.resize_token_embeddings(tokenizer_length)
+        self.backbone.config.vocab_size = tokenizer_length
+        
+        
 
     def _create_backbone_config(self, cfg):
         self.backbone.decoder.config.max_length = cfg.model.max_length
@@ -118,11 +144,8 @@ class Donut(BaseChartExtractionModel, torch.nn.Module):
         return loss, outputs
 
     def generate(self, batch, **gen_kwargs):
-        flattened_patches = batch['flattened_patches']
-        attention_mask = batch['attention_mask']
-        
+        pixel_values = batch['pixel_values']    
         return self.backbone.generate(
-            flattened_patches=flattened_patches,
-            attention_mask=attention_mask,
+            pixel_values=pixel_values,
             **gen_kwargs
         )

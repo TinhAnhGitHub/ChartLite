@@ -8,10 +8,10 @@ model:
   max_patches: 1024
   patch_size: 16
   len_tokenizer: ???
-  pad_token_id: ???
-  decoder_start_token_id: ???
-  bos_token_id: ???
-  max_length_generation: 1024
+  pad_token_id: 1
+  decoder_start_token_id: 0
+  bos_token_id: 0
+  max_length_generation: 2100
   frozen_layer_range: [0,0]
   adapter_layer_range: [0,0]
 
@@ -20,10 +20,10 @@ model:
 train_params:
   train_bs: 1
   val_bs: 1
-  max_steps: 659700
+  max_steps: 923580
   grad_accumulation: 16
   use_fp16_mixed: true
-  num_workers: 8
+  num_workers: 1
   val_check_interval: 50000
   save_every_n_train_steps: 50000
   ema_enable: false
@@ -55,7 +55,7 @@ metrics_tolerance:
   string_tolerance: 2
 
 outputs:
-  model_dir: ./run_expr/matcha_base_original
+  model_dir: ./run_expr/donut_base_v1
 
 best_ckpt:
   monitor: 'val_loss_avg'
@@ -73,9 +73,9 @@ dataset:
 
 
 wandb:
-  enabled: false
+  enabled: true
   project: mga-dev-a1
-  run_name: exp_v0_freeze_half_encoder_half_adapter
+  run_name: donut_base_v1
   api_key: 29662cde24039f6694273fcbc7496824462ed703
 images:
   rsz_height: 512

@@ -111,9 +111,14 @@ class ModelLightning(LightningModule):
         return loss, outputs
     
     def training_step(self, batch, batch_idx):
-        loss, _ = self(
-            batch
-        )
+        try:
+            loss, _ = self(
+                batch
+            )
+        except Exception as e:
+            
+            print(f"{batch=}")
+            raise e
         loss_item = loss.item()
         self.train_metrics['loss'].update(loss_item, 1)
 
@@ -168,8 +173,12 @@ class ModelLightning(LightningModule):
             }, step=current_step)
 
     def configure_optimizers(self):
-        optimizer = Adafactor(self.model.parameters(), scale_parameter=False, relative_step=False, lr = float(self.config.optimizer.lr), weight_decay= float(self.config.optimizer.weight_decay))
-
+        #optimizer = Adafactor(self.model.parameters(), scale_parameter=False, relative_step=False, lr = float(self.config.optimizer.lr), weight_decay= float(self.config.optimizer.weight_decay))
+        optimizer = AdamW(
+            params=self.model.parameters(),
+            lr = float(self.config.optimizer.lr),
+            weight_decay= float(self.config.optimizer.weight_decay)
+        )
         max_steps = self.config.train_params.max_steps
         num_warmup_steps = int(self.config.learning_rate_scheduler.warmup_pct * max_steps)
         num_cycles = self.config.learning_rate_scheduler.num_cycles
@@ -200,18 +209,13 @@ def run_training(cfg, ckpt_path=None):
         os.makedirs(os.path.join(checkpoint_dir, 'last_ckpts'), exist_ok=True)
     callbacks = [
         ModelCheckpoint(
-            monitor=cfg.best_ckpt.monitor,   
-            mode=cfg.best_ckpt.mode,        
-            save_top_k=1,                  
-            filename="best-checkpoint",    
-            dirpath=os.path.join(checkpoint_dir, 'best_ckpts'),
-            auto_insert_metric_name=False   
-        ),
-        ModelCheckpoint(
-            save_last=True,              
-            dirpath=os.path.join(checkpoint_dir, 'last_ckpts'), 
-            every_n_train_steps=None,     
-            every_n_epochs=None           
+            monitor=cfg.best_ckpt.monitor,
+            mode=cfg.best_ckpt.mode,
+            save_top_k=1,
+            save_last=True,
+            filename="best-checkpoint-{"+cfg.best_ckpt.monitor+":.4f}", 
+            dirpath=os.path.join(checkpoint_dir, 'checkpoints'),
+            auto_insert_metric_name=False,
         ),
         EarlyStopping(
             monitor=cfg.early_stopping.monitor,
@@ -265,6 +269,7 @@ def run_training(cfg, ckpt_path=None):
         )
     
     trainer = Trainer(
+        default_root_dir=cfg.outputs.model_dir,
         max_steps=cfg.train_params.max_steps,
         max_epochs=None,
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
